@@ -18,6 +18,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.waxmoon.BuildConfig
+import org.waxmoon.R
 import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
@@ -112,6 +114,6 @@ class ExampleRobolectricTest {
     fun `host diagnostics accurately reports absence of MultiApp native engine`() = runTest {
         val diag = repository.getHostDiagnostics()
         assertFalse(diag.multiAppEngineAvailable)
-        assertTrue(diag.containerRootPath.contains("atp_containers"))
+        assertTrue(diag.containerRootPath.contains("atp_spaces") || diag.containerRootPath.contains("atp_containers"))
     }
 }

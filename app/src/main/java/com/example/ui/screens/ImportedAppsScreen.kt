@@ -20,7 +20,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -34,6 +36,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -50,13 +53,13 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.example.R
 import com.example.data.local.VirtualAppEntity
 import com.example.data.repository.ContainerVerificationReport
 import com.example.ui.AtpUiState
 import com.example.ui.components.AppPackageIcon
 import com.example.ui.components.AtpPill
 import com.example.ui.components.formatBytes
+import org.waxmoon.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,6 +68,8 @@ fun ImportedAppsScreen(
     loadIcon: suspend (String, String?) -> Bitmap?,
     getHostLaunchIntent: (String) -> Intent?,
     onOpenImporter: () -> Unit,
+    onLaunchVirtualApp: (String) -> Unit,
+    onClearLaunchNotice: () -> Unit,
     onVerifyContainer: (VirtualAppEntity) -> Unit,
     onClearVerification: () -> Unit,
     onWipeData: (String) -> Unit,
@@ -178,6 +183,26 @@ fun ImportedAppsScreen(
         }
     }
 
+    if (uiState.launchNotice != null) {
+        AlertDialog(
+            onDismissRequest = onClearLaunchNotice,
+            containerColor = MaterialTheme.colorScheme.surface,
+            title = { Text("Virtual Runtime Status") },
+            text = {
+                Text(
+                    text = uiState.launchNotice,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = onClearLaunchNotice) {
+                    Text("OK")
+                }
+            }
+        )
+    }
+
     if (selectedApp != null) {
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         val context = LocalContext.current
@@ -191,6 +216,7 @@ fun ImportedAppsScreen(
                 selectedPackage = null
                 onClearVerification()
             },
+            containerColor = MaterialTheme.colorScheme.surface,
             sheetState = sheetState
         ) {
             Column(
@@ -223,55 +249,47 @@ fun ImportedAppsScreen(
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AtpPill(text = "Space ${uiState.userSpace}")
                     AtpPill(text = selectedApp.abiTag)
                     AtpPill(text = formatBytes(selectedApp.apkSizeBytes))
                     if (selectedApp.splitCount > 0) {
-                        AtpPill(
-                            text = "Base + ${selectedApp.splitCount} splits",
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
+                        AtpPill(text = "+${selectedApp.splitCount} splits")
                     }
                 }
 
                 Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                    color = MaterialTheme.colorScheme.background,
                     shape = MaterialTheme.shapes.small,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.small)
                 ) {
                     Column(
                         modifier = Modifier.padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Text(
-                            text = "Container Path",
+                            text = "Container Directory",
                             style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary
+                            color = MaterialTheme.colorScheme.secondary
                         )
                         Text(
                             text = selectedApp.containerDir,
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Runtime Status: Staged on disk. Isolated process virtualization requires the MultiApp native binder runtime.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.tertiary
-                        )
                     }
                 }
 
-                // Per-container preference switches
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Request Virtual Root", style = MaterialTheme.typography.titleMedium)
+                        Text("Virtual Root Policy", style = MaterialTheme.typography.titleMedium)
                         Text(
-                            "Requires MultiApp native root hook (inactive in template)",
+                            "Requests virtual su hook when native opensdk binary is present",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -305,13 +323,29 @@ fun ImportedAppsScreen(
                     VerificationReportCard(verification)
                 }
 
-                HorizontalDivider()
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+
+                Button(
+                    onClick = { onLaunchVirtualApp(selectedApp.packageName) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .minimumInteractiveComponentSize()
+                        .testTag("sheet_launch_virtual_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("${stringResource(R.string.item_btn_start)} in Space ${uiState.userSpace}")
+                }
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Button(
+                    OutlinedButton(
                         onClick = { onVerifyContainer(selectedApp) },
                         modifier = Modifier
                             .weight(1f)
@@ -361,7 +395,7 @@ fun ImportedAppsScreen(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Remove",
+                            text = stringResource(R.string.item_btn_uninstall),
                             color = MaterialTheme.colorScheme.error
                         )
                     }
@@ -373,13 +407,13 @@ fun ImportedAppsScreen(
 
 @Composable
 private fun VerificationReportCard(report: ContainerVerificationReport) {
-    val color = if (report.isHealthy) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+    val color = if (report.isHealthy) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.error
     Surface(
-        color = color.copy(alpha = 0.12f),
+        color = MaterialTheme.colorScheme.background,
         shape = MaterialTheme.shapes.small,
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, color.copy(alpha = 0.4f), MaterialTheme.shapes.small)
+            .border(1.dp, color.copy(alpha = 0.55f), MaterialTheme.shapes.small)
     ) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
@@ -389,7 +423,8 @@ private fun VerificationReportCard(report: ContainerVerificationReport) {
             )
             Text(
                 text = "Base APK: ${if (report.baseApkExists) "Present" else "Missing"} · Splits: ${report.splitApkCountFound}/${report.expectedSplitCount} · Disk: ${formatBytes(report.actualDiskBytes)}",
-                style = MaterialTheme.typography.bodySmall
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
@@ -409,7 +444,7 @@ private fun ImportedAppCard(
             .clickable(onClick = onClick)
             .border(
                 width = 1.dp,
-                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                color = MaterialTheme.colorScheme.outlineVariant,
                 shape = MaterialTheme.shapes.medium
             ),
         color = MaterialTheme.colorScheme.surface,
@@ -445,11 +480,7 @@ private fun ImportedAppCard(
                     AtpPill(text = app.abiTag)
                     AtpPill(text = formatBytes(app.apkSizeBytes))
                     if (app.splitCount > 0) {
-                        AtpPill(
-                            text = "+${app.splitCount} splits",
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
+                        AtpPill(text = "+${app.splitCount} splits")
                     }
                 }
             }

@@ -57,7 +57,7 @@ fun AppPackageIcon(
     appName: String,
     containerDir: String? = null,
     loadBitmap: suspend (String, String?) -> Bitmap?,
-    size: Dp = 44.dp,
+    size: Dp = 46.dp,
     modifier: Modifier = Modifier
 ) {
     val bitmap by produceState<Bitmap?>(initialValue = null, packageName, containerDir) {
@@ -72,21 +72,23 @@ fun AppPackageIcon(
             contentDescription = "$appName icon",
             modifier = modifier
                 .size(size)
-                .clip(RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(14.dp))
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp))
         )
     } else {
         val initials = appName.trim().take(2).uppercase().ifEmpty { "AP" }
         Box(
             modifier = modifier
                 .size(size)
-                .clip(RoundedCornerShape(12.dp))
-                .background(MaterialTheme.colorScheme.primaryContainer),
+                .clip(RoundedCornerShape(14.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp)),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = initials,
                 style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                color = MaterialTheme.colorScheme.secondary,
                 fontWeight = FontWeight.Bold
             )
         }
@@ -97,11 +99,15 @@ fun AppPackageIcon(
 fun AtpPill(
     text: String,
     containerColor: Color = MaterialTheme.colorScheme.surfaceVariant,
-    contentColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    contentColor: Color = MaterialTheme.colorScheme.secondary,
     modifier: Modifier = Modifier
 ) {
     Surface(
-        modifier = modifier,
+        modifier = modifier.border(
+            width = 0.75.dp,
+            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.75f),
+            shape = RoundedCornerShape(8.dp)
+        ),
         color = containerColor,
         contentColor = contentColor,
         shape = RoundedCornerShape(8.dp)
@@ -144,7 +150,7 @@ fun AtpModuleCard(
     title: String,
     subtitle: String,
     @DrawableRes iconRes: Int,
-    accentColor: Color,
+    accentColor: Color = MaterialTheme.colorScheme.primary,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -156,7 +162,7 @@ fun AtpModuleCard(
             .clickable(onClick = onClick)
             .border(
                 width = 1.dp,
-                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.55f),
+                color = MaterialTheme.colorScheme.outlineVariant,
                 shape = MaterialTheme.shapes.medium
             ),
         color = MaterialTheme.colorScheme.surface,
@@ -169,9 +175,10 @@ fun AtpModuleCard(
         ) {
             Box(
                 modifier = Modifier
-                    .size(42.dp)
+                    .size(44.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(accentColor.copy(alpha = 0.16f)),
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .border(1.dp, accentColor.copy(alpha = 0.35f), RoundedCornerShape(12.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -207,13 +214,13 @@ fun AtpModuleCard(
 fun AtpMetricTile(
     label: String,
     value: String,
-    accentColor: Color,
+    accentColor: Color = MaterialTheme.colorScheme.secondary,
     modifier: Modifier = Modifier
 ) {
     Surface(
         modifier = modifier.border(
             width = 1.dp,
-            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+            color = MaterialTheme.colorScheme.outlineVariant,
             shape = MaterialTheme.shapes.medium
         ),
         color = MaterialTheme.colorScheme.surface,

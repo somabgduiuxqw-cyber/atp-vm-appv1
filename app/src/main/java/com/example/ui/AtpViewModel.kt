@@ -18,6 +18,7 @@ import com.example.data.repository.HostAppInfo
 import com.example.data.repository.HostDiagnostics
 import com.example.data.repository.ImportResult
 import com.example.data.repository.StorageSummary
+import com.example.data.repository.VirtualLaunchResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -26,6 +27,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class AtpUiState(
+    val userSpace: Int = 0,
     val importedApps: List<VirtualAppEntity> = emptyList(),
     val hostApps: List<HostAppInfo> = emptyList(),
     val isScanningHostApps: Boolean = false,
@@ -35,6 +37,8 @@ data class AtpUiState(
     val diagnostics: HostDiagnostics? = null,
     val gmsStatus: GmsComponentStatus? = null,
     val verificationReport: ContainerVerificationReport? = null,
+    val assistPromptPackage: String? = null,
+    val launchNotice: String? = null,
     val statusMessage: String? = null
 )
 
@@ -44,6 +48,7 @@ class AtpViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = AtpContainerRepository(application, database.virtualAppDao())
     private val preferences = EnvironmentPreferences(application)
 
+    private val userSpaceFlow = MutableStateFlow(0)
     private val hostAppsFlow = MutableStateFlow<List<HostAppInfo>>(emptyList())
     private val scanningFlow = MutableStateFlow(false)
     private val importingPkgFlow = MutableStateFlow<String?>(null)
@@ -51,11 +56,14 @@ class AtpViewModel(application: Application) : AndroidViewModel(application) {
     private val diagnosticsFlow = MutableStateFlow<HostDiagnostics?>(null)
     private val gmsStatusFlow = MutableStateFlow<GmsComponentStatus?>(null)
     private val verificationFlow = MutableStateFlow<ContainerVerificationReport?>(null)
+    private val assistPromptPkgFlow = MutableStateFlow<String?>(null)
+    private val launchNoticeFlow = MutableStateFlow<String?>(null)
     private val statusMessageFlow = MutableStateFlow<String?>(null)
 
     private val iconCache = HashMap<String, Bitmap?>()
 
     val uiState: StateFlow<AtpUiState> = combine(
+        userSpaceFlow,
         repository.observeImportedApps(),
         hostAppsFlow,
         scanningFlow,
@@ -65,20 +73,25 @@ class AtpViewModel(application: Application) : AndroidViewModel(application) {
         diagnosticsFlow,
         gmsStatusFlow,
         verificationFlow,
+        assistPromptPkgFlow,
+        launchNoticeFlow,
         statusMessageFlow
     ) { values ->
         @Suppress("UNCHECKED_CAST")
         AtpUiState(
-            importedApps = values[0] as List<VirtualAppEntity>,
-            hostApps = values[1] as List<HostAppInfo>,
-            isScanningHostApps = values[2] as Boolean,
-            importingPackage = values[3] as String?,
-            storageSummary = values[4] as StorageSummary,
-            settings = values[5] as EnvironmentSettings,
-            diagnostics = values[6] as HostDiagnostics?,
-            gmsStatus = values[7] as GmsComponentStatus?,
-            verificationReport = values[8] as ContainerVerificationReport?,
-            statusMessage = values[9] as String?
+            userSpace = values[0] as Int,
+            importedApps = values[1] as List<VirtualAppEntity>,
+            hostApps = values[2] as List<HostAppInfo>,
+            isScanningHostApps = values[3] as Boolean,
+            importingPackage = values[4] as String?,
+            storageSummary = values[5] as StorageSummary,
+            settings = values[6] as EnvironmentSettings,
+            diagnostics = values[7] as HostDiagnostics?,
+            gmsStatus = values[8] as GmsComponentStatus?,
+            verificationReport = values[9] as ContainerVerificationReport?,
+            assistPromptPackage = values[10] as String?,
+            launchNotice = values[11] as String?,
+            statusMessage = values[12] as String?
         )
     }.stateIn(
         scope = viewModelScope,
@@ -93,6 +106,14 @@ class AtpViewModel(application: Application) : AndroidViewModel(application) {
                 storageSummaryFlow.value = repository.computeStorageSummary(apps)
             }
         }
+    }
+
+    fun incrementUserSpace() {
+        userSpaceFlow.value = (userSpaceFlow.value + 1).coerceAtMost(9)
+    }
+
+    fun decrementUserSpace() {
+        userSpaceFlow.value = (userSpaceFlow.value - 1).coerceAtLeast(0)
     }
 
     fun refreshDiagnosticsAndGms() {
@@ -114,10 +135,10 @@ class AtpViewModel(application: Application) : AndroidViewModel(application) {
     fun importHostApp(hostApp: HostAppInfo) {
         viewModelScope.launch {
             importingPkgFlow.value = hostApp.packageName
-            when (val res = repository.importHostApp(hostApp)) {
+            when (val res = repository.importHostApp(hostApp, userSpaceFlow.value)) {
                 is ImportResult.Success -> {
                     val splitNote = if (res.splitCount > 0) " (+${res.splitCount} split APKs)" else ""
-                    statusMessageFlow.value = "Staged ${res.appName}$splitNote into isolated container."
+                    statusMessageFlow.value = "Staged ${res.appName}$splitNote in Space ${userSpaceFlow.value}."
                 }
                 is ImportResult.Failure -> {
                     statusMessageFlow.value = res.reason
@@ -131,9 +152,9 @@ class AtpViewModel(application: Application) : AndroidViewModel(application) {
     fun importExternalApk(uri: Uri) {
         viewModelScope.launch {
             importingPkgFlow.value = "external_apk"
-            when (val res = repository.importExternalApk(uri)) {
+            when (val res = repository.importExternalApk(uri, userSpaceFlow.value)) {
                 is ImportResult.Success -> {
-                    statusMessageFlow.value = "Imported ${res.appName} (${res.packageName})."
+                    statusMessageFlow.value = "Imported ${res.appName} (${res.packageName}) in Space ${userSpaceFlow.value}."
                 }
                 is ImportResult.Failure -> {
                     statusMessageFlow.value = res.reason
@@ -141,6 +162,41 @@ class AtpViewModel(application: Application) : AndroidViewModel(application) {
             }
             importingPkgFlow.value = null
             refreshStorage()
+        }
+    }
+
+    fun launchVirtualApp(packageName: String) {
+        viewModelScope.launch {
+            when (val result = repository.launchVirtualApp(packageName, userSpaceFlow.value)) {
+                VirtualLaunchResult.Launched -> {
+                    statusMessageFlow.value = "Launched $packageName in Space ${userSpaceFlow.value}."
+                }
+                VirtualLaunchResult.AssistPackageRequired -> {
+                    assistPromptPkgFlow.value = packageName
+                }
+                is VirtualLaunchResult.EngineUnavailable -> {
+                    launchNoticeFlow.value = result.message
+                }
+                is VirtualLaunchResult.Failed -> {
+                    statusMessageFlow.value = result.reason
+                }
+            }
+        }
+    }
+
+    fun dismissAssistPrompt() {
+        assistPromptPkgFlow.value = null
+    }
+
+    fun clearLaunchNotice() {
+        launchNoticeFlow.value = null
+    }
+
+    fun stageGoogleServicesFromHost() {
+        viewModelScope.launch {
+            val results = repository.stageGoogleServicesFromHost(userSpaceFlow.value)
+            statusMessageFlow.value = "GMS Space ${userSpaceFlow.value}: ${results.joinToString("; ")}"
+            refreshDiagnosticsAndGms()
         }
     }
 
@@ -180,7 +236,7 @@ class AtpViewModel(application: Application) : AndroidViewModel(application) {
 
     fun removeVirtualApp(packageName: String) {
         viewModelScope.launch {
-            repository.removeVirtualApp(packageName)
+            repository.removeVirtualApp(packageName, userSpaceFlow.value)
             iconCache.remove(packageName)
             refreshStorage()
             statusMessageFlow.value = "Removed container $packageName."

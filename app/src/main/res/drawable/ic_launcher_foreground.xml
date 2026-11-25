@@ -3,6 +3,6 @@
     <item
         android:width="66dp"
         android:height="66dp"
-        android:drawable="@drawable/atp_launcher_foreground_1795577788519"
+        android:drawable="@drawable/atp_silver_navy_icon_1795597528181"
         android:gravity="center" />
 </layer-list>

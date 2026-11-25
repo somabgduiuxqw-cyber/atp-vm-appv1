@@ -1,87 +1,74 @@
 package com.example.ui.theme
 
-import android.os.Build
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 
-private val AtpDarkColorScheme = darkColorScheme(
-    primary = AtpTealPrimary,
-    onPrimary = AtpTealOnPrimary,
-    primaryContainer = AtpTealContainer,
-    onPrimaryContainer = AtpTealOnContainer,
-    secondary = AtpSkySecondary,
-    onSecondary = AtpSkyOnSecondary,
-    secondaryContainer = AtpSkyContainer,
-    onSecondaryContainer = AtpSkyOnContainer,
-    tertiary = AtpAmberTertiary,
-    onTertiary = AtpAmberOnTertiary,
+private val AtpSilverNavyColorScheme = darkColorScheme(
+    primary = AtpMetallicSilver,
+    onPrimary = AtpDarkBlueBg,
+    primaryContainer = AtpSilverContainer,
+    onPrimaryContainer = AtpLightSilver,
+    secondary = AtpLightSilver,
+    onSecondary = AtpDarkBlueBg,
+    secondaryContainer = AtpElevatedNavy,
+    onSecondaryContainer = AtpPureWhite,
+    tertiary = AtpAmberWarning,
+    onTertiary = AtpOnAmberWarning,
     tertiaryContainer = AtpAmberContainer,
-    onTertiaryContainer = AtpAmberOnContainer,
-    background = AtpDarkBackground,
-    onBackground = AtpDarkOnSurface,
-    surface = AtpDarkSurface,
-    onSurface = AtpDarkOnSurface,
-    surfaceVariant = AtpDarkSurfaceVariant,
-    onSurfaceVariant = AtpDarkOnSurfaceMuted,
-    surfaceContainerHigh = AtpDarkSurfaceElevated,
-    outline = AtpDarkOutline,
-    error = AtpErrorDark,
-    onError = AtpOnErrorDark,
-    errorContainer = AtpErrorContainerDark,
-    onErrorContainer = AtpOnErrorContainerDark
+    onTertiaryContainer = AtpOnAmberContainer,
+    background = AtpDarkBlueBg,
+    onBackground = AtpPureWhite,
+    surface = AtpDeepNavySurface,
+    onSurface = AtpPureWhite,
+    surfaceVariant = AtpElevatedNavy,
+    onSurfaceVariant = AtpMetallicSilver,
+    surfaceContainerLowest = AtpDarkBlueBg,
+    surfaceContainerLow = AtpDeepNavySurface,
+    surfaceContainer = AtpDeepNavySurface,
+    surfaceContainerHigh = AtpElevatedNavy,
+    outline = AtpSilverBorder,
+    outlineVariant = AtpSilverOutlineGlow,
+    error = AtpErrorRose,
+    onError = AtpOnErrorRose,
+    errorContainer = AtpErrorContainerNavy,
+    onErrorContainer = AtpOnErrorContainerNavy
 )
 
-private val AtpLightColorScheme = lightColorScheme(
-    primary = AtpTealLightPrimary,
-    onPrimary = AtpTealLightOnPrimary,
-    primaryContainer = AtpTealLightContainer,
-    onPrimaryContainer = AtpTealLightOnContainer,
-    secondary = AtpSkyLightSecondary,
-    onSecondary = AtpSkyLightOnSecondary,
-    secondaryContainer = AtpSkyLightContainer,
-    onSecondaryContainer = AtpSkyLightOnContainer,
-    tertiary = AtpAmberLightTertiary,
-    onTertiary = AtpAmberLightOnTertiary,
-    tertiaryContainer = AtpAmberLightContainer,
-    onTertiaryContainer = AtpAmberLightOnContainer,
-    background = AtpLightBackground,
-    onBackground = AtpLightOnSurface,
+private val AtpLightSilverColorScheme = lightColorScheme(
+    primary = AtpLightPrimary,
+    onPrimary = AtpPureWhite,
+    primaryContainer = AtpLightSurfaceVariant,
+    onPrimaryContainer = AtpDarkBlueBg,
+    secondary = AtpLightSecondary,
+    onSecondary = AtpPureWhite,
+    secondaryContainer = AtpLightSilver,
+    onSecondaryContainer = AtpDarkBlueBg,
+    background = AtpLightBg,
+    onBackground = AtpDarkBlueBg,
     surface = AtpLightSurface,
-    onSurface = AtpLightOnSurface,
+    onSurface = AtpDarkBlueBg,
     surfaceVariant = AtpLightSurfaceVariant,
-    onSurfaceVariant = AtpLightOnSurfaceMuted,
+    onSurfaceVariant = AtpLightSecondary,
     outline = AtpLightOutline
 )
 
 val AtpShapes = Shapes(
-    small = RoundedCornerShape(10.dp),
-    medium = RoundedCornerShape(16.dp),
-    large = RoundedCornerShape(22.dp)
+    small = RoundedCornerShape(12.dp),
+    medium = RoundedCornerShape(18.dp),
+    large = RoundedCornerShape(24.dp)
 )
 
 @Composable
 fun AtpVmTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = false,
+    darkTheme: Boolean = true,
     content: @Composable () -> Unit
 ) {
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-        darkTheme -> AtpDarkColorScheme
-        else -> AtpLightColorScheme
-    }
+    val colorScheme = if (darkTheme) AtpSilverNavyColorScheme else AtpLightSilverColorScheme
 
     MaterialTheme(
         colorScheme = colorScheme,

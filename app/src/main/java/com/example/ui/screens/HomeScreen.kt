@@ -22,7 +22,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -43,7 +42,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import org.waxmoon.R
 import com.example.data.local.VirtualAppEntity
 import com.example.data.preferences.GmsOptionMode
 import com.example.ui.AtpUiState
@@ -53,6 +51,7 @@ import com.example.ui.components.AtpModuleCard
 import com.example.ui.components.AtpPill
 import com.example.ui.components.AtpSectionTitle
 import com.example.ui.components.formatBytes
+import org.waxmoon.R
 
 @Composable
 fun HomeScreen(
@@ -66,9 +65,10 @@ fun HomeScreen(
     onOpenAbout: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val primaryColor = MaterialTheme.colorScheme.primary
-    val secondaryColor = MaterialTheme.colorScheme.secondary
-    val tertiaryColor = MaterialTheme.colorScheme.tertiary
+    val silverPrimary = MaterialTheme.colorScheme.primary
+    val lightSilver = MaterialTheme.colorScheme.secondary
+    val deepNavy = MaterialTheme.colorScheme.surface
+    val darkBlue = MaterialTheme.colorScheme.background
 
     LazyColumn(
         modifier = modifier
@@ -77,18 +77,18 @@ fun HomeScreen(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Hero Banner
+        // Metallic Silver & Dark Blue Hero Card
         item {
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
                     .border(
                         width = 1.dp,
-                        color = primaryColor.copy(alpha = 0.35f),
+                        color = silverPrimary.copy(alpha = 0.45f),
                         shape = MaterialTheme.shapes.large
                     ),
                 shape = MaterialTheme.shapes.large,
-                color = MaterialTheme.colorScheme.surface
+                color = deepNavy
             ) {
                 Box(
                     modifier = Modifier
@@ -97,9 +97,9 @@ fun HomeScreen(
                             drawRect(
                                 brush = Brush.linearGradient(
                                     colors = listOf(
-                                        primaryColor.copy(alpha = 0.18f),
-                                        secondaryColor.copy(alpha = 0.08f),
-                                        primaryColor.copy(alpha = 0.02f)
+                                        silverPrimary.copy(alpha = 0.16f),
+                                        deepNavy.copy(alpha = 0.92f),
+                                        darkBlue.copy(alpha = 0.98f)
                                     ),
                                     start = Offset(0f, 0f),
                                     end = Offset(size.width, size.height)
@@ -117,13 +117,14 @@ fun HomeScreen(
                                 modifier = Modifier
                                     .size(48.dp)
                                     .clip(RoundedCornerShape(14.dp))
-                                    .background(primaryColor.copy(alpha = 0.16f)),
+                                    .background(darkBlue)
+                                    .border(1.dp, silverPrimary.copy(alpha = 0.5f), RoundedCornerShape(14.dp)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
                                     painter = painterResource(id = R.drawable.ic_container),
                                     contentDescription = null,
-                                    tint = primaryColor,
+                                    tint = lightSilver,
                                     modifier = Modifier.size(26.dp)
                                 )
                             }
@@ -134,15 +135,15 @@ fun HomeScreen(
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
-                                    text = "${stringResource(R.string.developer_brand)} · com.atp.vm",
+                                    text = "${stringResource(R.string.developer_brand)} · Space ${uiState.userSpace}",
                                     style = MaterialTheme.typography.labelMedium,
-                                    color = primaryColor
+                                    color = silverPrimary
                                 )
                             }
                         }
 
                         Text(
-                            text = "Lightweight Android container workspace for APK and split-APK staging, isolated storage management, and optional Google Services diagnostics.",
+                            text = "MultiApp-powered container workspace for APK & split-APK isolation, multi-space management, and optional Google Services.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -159,8 +160,8 @@ fun HomeScreen(
                                     .testTag("home_import_button"),
                                 shape = MaterialTheme.shapes.small,
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = primaryColor,
-                                    contentColor = MaterialTheme.colorScheme.onPrimary
+                                    containerColor = silverPrimary,
+                                    contentColor = darkBlue
                                 )
                             ) {
                                 Icon(
@@ -182,10 +183,11 @@ fun HomeScreen(
                                 Icon(
                                     imageVector = Icons.Default.Info,
                                     contentDescription = "About ATP",
+                                    tint = lightSilver,
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("About")
+                                Text("About", color = lightSilver)
                             }
                         }
                     }
@@ -202,60 +204,56 @@ fun HomeScreen(
                 AtpMetricTile(
                     label = stringResource(R.string.home_imported_count_label),
                     value = uiState.importedApps.size.toString(),
-                    accentColor = primaryColor,
+                    accentColor = lightSilver,
                     modifier = Modifier.weight(1f)
                 )
                 AtpMetricTile(
                     label = stringResource(R.string.home_storage_used_label),
                     value = formatBytes(uiState.storageSummary.grandTotalBytes),
-                    accentColor = secondaryColor,
+                    accentColor = silverPrimary,
                     modifier = Modifier.weight(1f)
                 )
                 AtpMetricTile(
                     label = stringResource(R.string.home_gms_status_label),
-                    value = if (uiState.settings.gmsMode == GmsOptionMode.DISABLED) "Off" else "Check",
-                    accentColor = if (uiState.settings.gmsMode == GmsOptionMode.DISABLED) {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    } else {
-                        tertiaryColor
-                    },
+                    value = if (uiState.settings.gmsMode == GmsOptionMode.DISABLED) "Off" else "Ready",
+                    accentColor = lightSilver,
                     modifier = Modifier.weight(1f)
                 )
             }
         }
 
-        // Honest Runtime Engine Banner
+        // Engine Status Card
         item {
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
                     .border(
                         width = 1.dp,
-                        color = tertiaryColor.copy(alpha = 0.45f),
+                        color = MaterialTheme.colorScheme.outlineVariant,
                         shape = MaterialTheme.shapes.medium
                     ),
-                color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.35f),
+                color = deepNavy,
                 shape = MaterialTheme.shapes.medium
             ) {
                 Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         AtpPill(
-                            text = "STAGING ACTIVE",
-                            containerColor = primaryColor.copy(alpha = 0.2f),
-                            contentColor = primaryColor
+                            text = if (uiState.diagnostics?.multiAppEngineAvailable == true) {
+                                "HACKAPI NATIVE ACTIVE"
+                            } else {
+                                "CONTAINER STAGING ACTIVE"
+                            },
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = lightSilver
                         )
                         uiState.diagnostics?.let { diag ->
-                            AtpPill(
-                                text = diag.supportedAbis.firstOrNull() ?: "ARM",
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            AtpPill(text = diag.supportedAbis.firstOrNull() ?: "ARM")
                         }
                     }
                     Text(
@@ -272,7 +270,7 @@ fun HomeScreen(
             }
         }
 
-        // Recent Imported Containers
+        // Recent Staged Containers
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -288,7 +286,7 @@ fun HomeScreen(
                         onClick = onOpenImportedApps,
                         modifier = Modifier.minimumInteractiveComponentSize()
                     ) {
-                        Text("View All")
+                        Text("View All", color = lightSilver)
                     }
                 }
             }
@@ -301,10 +299,10 @@ fun HomeScreen(
                         .fillMaxWidth()
                         .border(
                             width = 1.dp,
-                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                            color = MaterialTheme.colorScheme.outlineVariant,
                             shape = MaterialTheme.shapes.medium
                         ),
-                    color = MaterialTheme.colorScheme.surface,
+                    color = deepNavy,
                     shape = MaterialTheme.shapes.medium
                 ) {
                     Column(
@@ -317,7 +315,7 @@ fun HomeScreen(
                         Icon(
                             painter = painterResource(id = R.drawable.ic_import_apk),
                             contentDescription = null,
-                            tint = primaryColor,
+                            tint = silverPrimary,
                             modifier = Modifier.size(36.dp)
                         )
                         Text(
@@ -342,12 +340,12 @@ fun HomeScreen(
             }
         }
 
-        // Environment Modules Navigation
+        // Environment Modules
         item {
             Spacer(modifier = Modifier.height(4.dp))
             AtpSectionTitle(
                 title = stringResource(R.string.home_quick_actions),
-                subtitle = "Manage container isolation, optional GMS, storage, and licenses"
+                subtitle = "Manage containers, virtual spaces, Google Services, and storage"
             )
         }
 
@@ -355,17 +353,17 @@ fun HomeScreen(
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 AtpModuleCard(
                     title = stringResource(R.string.imported_title),
-                    subtitle = "${uiState.importedApps.size} staged container(s) · Inspect APKs & data",
+                    subtitle = "${uiState.importedApps.size} staged container(s) · Space ${uiState.userSpace}",
                     iconRes = R.drawable.ic_container,
-                    accentColor = primaryColor,
+                    accentColor = lightSilver,
                     onClick = onOpenImportedApps,
                     modifier = Modifier.testTag("module_imported_apps")
                 )
                 AtpModuleCard(
                     title = stringResource(R.string.env_title),
-                    subtitle = "ABI support, container isolation & virtual root diagnostics",
+                    subtitle = "ABI architecture, container isolation & virtual root probe",
                     iconRes = R.drawable.ic_terminal,
-                    accentColor = secondaryColor,
+                    accentColor = silverPrimary,
                     onClick = onOpenEnvSettings,
                     modifier = Modifier.testTag("module_env_settings")
                 )
@@ -373,15 +371,15 @@ fun HomeScreen(
                     title = stringResource(R.string.gms_title),
                     subtitle = "Optional Google Services (${uiState.settings.gmsMode.label})",
                     iconRes = R.drawable.ic_cloud,
-                    accentColor = tertiaryColor,
+                    accentColor = lightSilver,
                     onClick = onOpenGmsSettings,
                     modifier = Modifier.testTag("module_gms_settings")
                 )
                 AtpModuleCard(
                     title = stringResource(R.string.storage_title),
-                    subtitle = "${formatBytes(uiState.storageSummary.grandTotalBytes)} used across APKs, data & caches",
+                    subtitle = "${formatBytes(uiState.storageSummary.grandTotalBytes)} across APKs, data & caches",
                     iconRes = R.drawable.ic_storage,
-                    accentColor = primaryColor,
+                    accentColor = silverPrimary,
                     onClick = onOpenStorage,
                     modifier = Modifier.testTag("module_storage")
                 )
@@ -408,7 +406,7 @@ private fun HomeImportedAppRow(
             .clickable(onClick = onClick)
             .border(
                 width = 1.dp,
-                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                color = MaterialTheme.colorScheme.outlineVariant,
                 shape = MaterialTheme.shapes.medium
             ),
         color = MaterialTheme.colorScheme.surface,
@@ -444,11 +442,7 @@ private fun HomeImportedAppRow(
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 AtpPill(text = formatBytes(app.apkSizeBytes))
                 if (app.splitCount > 0) {
-                    AtpPill(
-                        text = "+${app.splitCount} splits",
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                    )
+                    AtpPill(text = "+${app.splitCount} splits")
                 }
             }
         }

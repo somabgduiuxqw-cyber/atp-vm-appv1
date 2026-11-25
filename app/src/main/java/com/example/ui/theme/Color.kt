@@ -2,54 +2,34 @@ package com.example.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// ATP Network Brand Palette — Precision Slate & Electric Teal
-val AtpTealPrimary = Color(0xFF00D1B2)
-val AtpTealOnPrimary = Color(0xFF002822)
-val AtpTealContainer = Color(0xFF004D42)
-val AtpTealOnContainer = Color(0xFF7AF8E1)
+// ATP Virtual Environment — Silver & Dark Blue Brand Palette
+val AtpDarkBlueBg = Color(0xFF071426)          // Primary background
+val AtpDeepNavySurface = Color(0xFF10233D)     // Secondary background & cards
+val AtpElevatedNavy = Color(0xFF162F50)        // Elevated surface / selected states
+val AtpMetallicSilver = Color(0xFFC0C7D1)      // Primary accent & primary button fill
+val AtpLightSilver = Color(0xFFE2E6EC)         // Secondary accent & highlights
+val AtpPureWhite = Color(0xFFFFFFFF)           // Crisp primary text & active icons
+val AtpMutedSilver = Color(0xFF94A3B8)         // Secondary / muted text
+val AtpSilverBorder = Color(0xFF334966)        // Subtle silver-tinted navy border
+val AtpSilverOutlineGlow = Color(0x55C0C7D1)   // Subtle metallic border highlight
 
-val AtpSkySecondary = Color(0xFF38BDF8)
-val AtpSkyOnSecondary = Color(0xFF00283B)
-val AtpSkyContainer = Color(0xFF0D4A6B)
-val AtpSkyOnContainer = Color(0xFFC2E9FF)
+val AtpSilverContainer = Color(0xFF1A3254)
+val AtpOnSilverContainer = Color(0xFFE2E6EC)
 
-val AtpAmberTertiary = Color(0xFFFBBF24)
-val AtpAmberOnTertiary = Color(0xFF2B1C00)
-val AtpAmberContainer = Color(0xFF533900)
-val AtpAmberOnContainer = Color(0xFFFFE08B)
+val AtpAmberWarning = Color(0xFFF5C469)
+val AtpOnAmberWarning = Color(0xFF231700)
+val AtpAmberContainer = Color(0xFF2B271F)
+val AtpOnAmberContainer = Color(0xFFFCE2A6)
 
-val AtpDarkBackground = Color(0xFF0A1017)
-val AtpDarkSurface = Color(0xFF101822)
-val AtpDarkSurfaceVariant = Color(0xFF172230)
-val AtpDarkSurfaceElevated = Color(0xFF1E2B3B)
-val AtpDarkOutline = Color(0xFF2B3C50)
-val AtpDarkOnSurface = Color(0xFFE6EDF5)
-val AtpDarkOnSurfaceMuted = Color(0xFF93A5BA)
+val AtpErrorRose = Color(0xFFFCA5A5)
+val AtpOnErrorRose = Color(0xFF3F0A0A)
+val AtpErrorContainerNavy = Color(0xFF3B1A26)
+val AtpOnErrorContainerNavy = Color(0xFFFEE2E2)
 
-val AtpErrorDark = Color(0xFFFB7185)
-val AtpOnErrorDark = Color(0xFF3B0512)
-val AtpErrorContainerDark = Color(0xFF6B1024)
-val AtpOnErrorContainerDark = Color(0xFFFFD9DF)
-
-// Light Theme Tokens
-val AtpTealLightPrimary = Color(0xFF007A68)
-val AtpTealLightOnPrimary = Color(0xFFFFFFFF)
-val AtpTealLightContainer = Color(0xFFC9F7EC)
-val AtpTealLightOnContainer = Color(0xFF002822)
-
-val AtpSkyLightSecondary = Color(0xFF0369A1)
-val AtpSkyLightOnSecondary = Color(0xFFFFFFFF)
-val AtpSkyLightContainer = Color(0xFFD6EFFF)
-val AtpSkyLightOnContainer = Color(0xFF001F33)
-
-val AtpAmberLightTertiary = Color(0xFFB45309)
-val AtpAmberLightOnTertiary = Color(0xFFFFFFFF)
-val AtpAmberLightContainer = Color(0xFFFEF3C7)
-val AtpAmberLightOnContainer = Color(0xFF3B1A00)
-
-val AtpLightBackground = Color(0xFFF3F6FA)
+// Light fallback tokens (high-contrast silver & navy)
+val AtpLightBg = Color(0xFFEEF2F6)
 val AtpLightSurface = Color(0xFFFFFFFF)
-val AtpLightSurfaceVariant = Color(0xFFE5ECF4)
-val AtpLightOutline = Color(0xFFCBD7E4)
-val AtpLightOnSurface = Color(0xFF0F172A)
-val AtpLightOnSurfaceMuted = Color(0xFF52637A)
+val AtpLightSurfaceVariant = Color(0xFFDCE3EC)
+val AtpLightPrimary = Color(0xFF0A213F)
+val AtpLightSecondary = Color(0xFF334E73)
+val AtpLightOutline = Color(0xFFB4C0CF)

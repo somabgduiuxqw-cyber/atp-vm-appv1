@@ -2,470 +2,428 @@ package org.waxmoon
 
 import android.content.Context
 import android.content.Intent
-import android.content.pm.ApplicationInfo
-import android.content.pm.PackageInfo
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.drawable.Drawable
+import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
-import android.text.TextUtils
-import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContract
-import androidx.compose.foundation.Image
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.*
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.tooling.preview.Preview
-import org.waxmoon.ui.theme.GithubMultiAppTheme
-
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
-import com.hack.opensdk.BuildConfig
-import com.hack.opensdk.CmdConstants
-import com.hack.opensdk.HackApi
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import com.example.ui.AtpViewModel
+import com.example.ui.navigation.AtpRoutes
+import com.example.ui.screens.AboutScreen
+import com.example.ui.screens.AppImporterScreen
+import com.example.ui.screens.EnvironmentSettingsScreen
+import com.example.ui.screens.GoogleServicesSettingsScreen
+import com.example.ui.screens.HomeScreen
+import com.example.ui.screens.ImportedAppsScreen
+import com.example.ui.screens.StorageManagementScreen
+import com.hack.opensdk.BuildConfig as OpenSdkBuildConfig
 import com.hack.utils.FileUtils
+import org.waxmoon.ui.theme.GithubMultiAppTheme
 import java.io.File
+
 class AppListActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val darkBlue = Color.parseColor("#071426")
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(darkBlue),
+            navigationBarStyle = SystemBarStyle.dark(darkBlue)
+        )
         setContent {
             GithubMultiAppTheme {
-                Surface(color = MaterialTheme.colors.background) {
-                    AppLayout()
-                }
+                AtpVirtualEnvironmentApp()
             }
         }
     }
 }
 
-const val INSTALL_SUCCEEDED = 1
-const val INSTALL_FAILED_ALREADY_EXISTS = -1
-const val INSTALL_FAILED_INVALID_APK = -2
-const val INSTALL_FAILED_INVALID_URI = -3
+private val assistInstallRequestContract = object : ActivityResultContract<String, String>() {
+    var targetPackage: String = ""
 
-const val START_SUCCESS = 0
-
-const val MENU_ENABLE_GP = 0
-const val MENU_OPEN_GP = 1
-
-val TAG = AppListActivity::class.simpleName
-var userSpace: Int = 0
-var dialogState = mutableStateOf(Any())
-
-
-var assistInstallRequestContract = object : ActivityResultContract<ApkInfo, ApkInfo>() {
-    var info: ApkInfo? = null
-
-    override fun parseResult(resultCode: Int, intent: Intent?): ApkInfo {
-        return info!!
-    }
-
-    override fun createIntent(context: Context, input: ApkInfo): Intent {
-        info = input
-        return Intent().apply {
-            setDataAndType(requestInstallAssist(context), "application/vnd.android.package-archive")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION.or(Intent.FLAG_GRANT_WRITE_URI_PERMISSION))
-            action = Intent.ACTION_VIEW
-        }
-
-    }
-
-    fun requestInstallAssist(context: Context): Uri? {
+    override fun createIntent(context: Context, input: String): Intent {
+        targetPackage = input
         val file = File(context.externalCacheDir, "assist.apk")
         FileUtils.extractAsset(context, "assist.apk", file)
-        val authority = context.packageName + ":" + MoonProvider::class.qualifiedName
-        val uri = FileProvider.getUriForFile(context, authority, file)
-        return uri
-    }
-}
-
-fun isInstall(info: ApkInfo): Boolean {
-    return try {
-        MoonApplication.INSTANCE().packageManager.getPackageInfo(info.getShellPackage(), 0)
-        true
-    } catch (e: Exception) {
-        false
-    }
-}
-
-
-@Composable
-fun AssistInstallDialog() {
-    val openDialog = remember { dialogState }
-    val launcher = rememberLauncherForActivityResult(contract = assistInstallRequestContract) {
-        if (!isInstall(it)) {
-            Toast.makeText(
-                MoonApplication.INSTANCE(), R.string.toast_fail,
-                Toast.LENGTH_SHORT
-            ).show()
+        val authority = "${context.packageName}:${MoonProvider::class.qualifiedName}"
+        val uri: Uri = FileProvider.getUriForFile(context, authority, file)
+        return Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
         }
-
     }
-    if (openDialog.value is ApkInfo) {
+
+    override fun parseResult(resultCode: Int, intent: Intent?): String = targetPackage
+}
+
+private fun isAssistInstalled(context: Context): Boolean {
+    return runCatching {
+        context.packageManager.getPackageInfo(OpenSdkBuildConfig.ASSIST_PACKAGE, 0)
+    }.isSuccess
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AtpVirtualEnvironmentApp(
+    viewModel: AtpViewModel = viewModel()
+) {
+    val navController = rememberNavController()
+    val backStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = backStackEntry?.destination?.route ?: AtpRoutes.HOME
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    val assistLauncher = rememberLauncherForActivityResult(contract = assistInstallRequestContract) { pkg ->
+        if (!isAssistInstalled(context)) {
+            Toast.makeText(context, R.string.toast_assist_missing, Toast.LENGTH_SHORT).show()
+        } else if (pkg.isNotEmpty()) {
+            viewModel.launchVirtualApp(pkg)
+        }
+    }
+
+    LaunchedEffect(uiState.statusMessage) {
+        val msg = uiState.statusMessage ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(msg)
+        viewModel.consumeStatusMessage()
+    }
+
+    val topLevelRoutes = setOf(
+        AtpRoutes.HOME,
+        AtpRoutes.IMPORTED_APPS,
+        AtpRoutes.STORAGE,
+        AtpRoutes.ENV_SETTINGS
+    )
+
+    val screenTitle = when (currentRoute) {
+        AtpRoutes.HOME -> stringResource(R.string.app_name)
+        AtpRoutes.IMPORTED_APPS -> stringResource(R.string.imported_title)
+        AtpRoutes.APP_IMPORTER -> stringResource(R.string.importer_title)
+        AtpRoutes.ENV_SETTINGS -> stringResource(R.string.env_title)
+        AtpRoutes.GMS_SETTINGS -> stringResource(R.string.gms_title)
+        AtpRoutes.STORAGE -> stringResource(R.string.storage_title)
+        AtpRoutes.ABOUT -> stringResource(R.string.about_title)
+        else -> stringResource(R.string.app_name)
+    }
+
+    if (uiState.assistPromptPackage != null) {
+        val pendingPkg = uiState.assistPromptPackage!!
         AlertDialog(
-            onDismissRequest = {
-                // Dismiss the dialog when the user clicks outside the dialog or on the back
-                // button. If you want to disable that functionality, simply use an empty
-                // onCloseRequest.
-                openDialog.value = Any()
-            },
-            title = {
-                Text(text = "Hint")
-            },
+            onDismissRequest = viewModel::dismissAssistPrompt,
+            containerColor = MaterialTheme.colorScheme.surface,
+            title = { Text("32-bit Assist Package Required") },
             text = {
                 Text(
-                    "need install assist package "
+                    "This application uses 32-bit libraries and requires installing the ATP Assist package (${OpenSdkBuildConfig.ASSIST_PACKAGE}).",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             },
-
             confirmButton = {
                 TextButton(
                     onClick = {
-                        launcher.launch(openDialog.value as ApkInfo)
-                        openDialog.value = Any()
+                        viewModel.dismissAssistPrompt()
+                        assistLauncher.launch(pendingPkg)
                     }
                 ) {
-                    Text("Confirm")
+                    Text("Install Assist")
                 }
             },
             dismissButton = {
-                TextButton(
-                    onClick = {
-                        openDialog.value = Any()
-                    }
-                ) {
+                TextButton(onClick = viewModel::dismissAssistPrompt) {
                     Text("Cancel")
                 }
             }
         )
     }
-}
 
-@Composable
-fun AppLayout() {
     Scaffold(
-        topBar = { MyAppBar() },
-        content = { innerPadding ->
-            BodyContent(Modifier.padding(innerPadding))
-            AssistInstallDialog()
-        }
-    )
-}
-
-@Composable
-fun MyAppBar() {
-    var userId by rememberSaveable { mutableStateOf(userSpace) }
-    var menuExpand = remember { mutableStateOf(false) }
-    var menus = listOf(stringResource(R.string.menu_enable_gp), stringResource(R.string.menu_open_gp))
-    TopAppBar(
-        title = { Text(stringResource(R.string.app_list)) },
-        actions = {
-            IconButton(
-                onClick = {
-                    if (userId > 0) {
-                        userId = --userSpace
-                    }
-                }
-            ) {
-                Icon(Icons.Filled.ArrowLeft, contentDescription = null)
-            }
-            Text(text = stringResource(R.string.text_space) + userId, Modifier.padding(3.dp))
-            IconButton(
-                onClick = {
-                    userId = ++userSpace
-                }
-            ) {
-                Icon(Icons.Filled.ArrowRight, contentDescription = null)
-            }
-
-            IconButton(onClick = {
-                menuExpand.value = true
-            }) {
-                Icon(
-                    imageVector = Icons.Default.MoreVert,
-                    contentDescription = "Open Options"
-                )
-            }
-
-            DropdownMenu(expanded = menuExpand.value, onDismissRequest = { menuExpand.value = false }) {
-                menus.forEachIndexed { index, s ->
-                    DropdownMenuItem(onClick = {
-                        menuExpand.value = false
-                        clickMenu(index)
-                    }) {
-                        Text(text = s)
-                    }
-                }
-            }
-        }
-    )
-}
-
-@Composable
-fun BodyContent(modifier: Modifier = Modifier) {
-    ApkList(modifier)
-}
-
-@Composable
-fun ApkList(modifier: Modifier = Modifier) {
-    val list = remember { mutableStateListOf<ApkInfo>() }
-    val context = LocalContext.current
-    val intent = Intent()
-    intent.action = Intent.ACTION_MAIN
-    intent.addCategory(Intent.CATEGORY_LAUNCHER)
-    val pm = context.packageManager
-    val activityInfos = pm.queryIntentActivities(intent, 0)
-    for (resolveInfo in activityInfos) {
-        if (!context.packageName.equals(resolveInfo.activityInfo.packageName)) {
-            val apkInfo = ApkInfo(resolveInfo.activityInfo.applicationInfo.sourceDir, true)
-            apkInfo.init(
-                context = context,
-                pkg = resolveInfo.activityInfo.applicationInfo.packageName
-            )
-            if (apkInfo.valid()) {
-                Log.d(TAG, "ApkInfo: $apkInfo")
-                list.add(apkInfo)
-            }
-        }
-    }
-
-    LazyColumn(modifier.fillMaxSize(1.0f)) {
-        items(list.size) {index->
-            ApkItem(apkInfo = list.get(index))
-        }
-    }
-}
-
-@Composable
-fun ApkItem(modifier: Modifier = Modifier, apkInfo: ApkInfo) {
-    var isExpanded by remember { mutableStateOf(false) }
-    Column(
-        modifier = modifier.padding(5.dp)
-    ) {
-        //ApkBaseInfo
-        Row(modifier.fillMaxWidth(1.0f)) {
-            Image(
-                bitmap = apkInfo.bitmap,
-                contentDescription = null,
-                modifier = modifier
-                    .padding(5.dp)
-                    .clip(CircleShape)
-                    .size(60.dp)
-                    .border(2.dp, MaterialTheme.colors.secondaryVariant, CircleShape)
-            )
-            Spacer(modifier = modifier.width(10.dp))
-
-            Column(
-                modifier
-                    .padding(8.dp)
-                    .weight(1.0f)
-            ) {
-                Text(text = apkInfo.label, fontWeight = FontWeight.Bold)
-                Spacer(modifier = modifier.padding(3.dp))
-                Log.d(TAG, "ApkInfo.pkgName: ${apkInfo.pkgName}")
-                Text(
-                    text = "${stringResource(id = R.string.item_pkg_name)}${apkInfo.pkgName}",
-                    color = MaterialTheme.colors.secondaryVariant)
-            }
-
-            IconButton(onClick = { isExpanded = !isExpanded }) {
-                Icon(
-                    imageVector = if (isExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                    contentDescription =
-                    if (isExpanded)
-                        stringResource(R.string.item_show_less)
-                    else
-                        stringResource(R.string.item_show_more)
-                )
-            }
-        }
-        //detailInfo
-        if (isExpanded) {
-            Row(
-                modifier = modifier
-                    .padding(10.dp)
-                    .fillMaxWidth(1.0f),
-                horizontalArrangement = Arrangement.Center
-            ) {
-                TextButton(onClick = { uninstall(apkInfo) }) {
+        modifier = Modifier.fillMaxSize(),
+        containerColor = MaterialTheme.colorScheme.background,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        topBar = {
+            TopAppBar(
+                title = {
                     Text(
-                        text = stringResource(id = R.string.item_btn_uninstall),
-                        color = Color.Gray
+                        text = screenTitle,
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onBackground
                     )
-                }
-                TextButton(onClick = { install(apkInfo) }) {
-                    Text(text = stringResource(id = R.string.item_btn_install))
-                }
-
-                TextButton(onClick = {
-                    if (TextUtils.equals(BuildConfig.ASSIST_PACKAGE, apkInfo.getShellPackage())) {
-                        if (!isInstall(apkInfo)) {
-                            dialogState.value = apkInfo
-                            return@TextButton
+                },
+                navigationIcon = {
+                    if (currentRoute !in topLevelRoutes) {
+                        IconButton(onClick = { navController.popBackStack() }) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                tint = MaterialTheme.colorScheme.secondary
+                            )
                         }
                     }
-                    startApp(apkInfo)
-                }) {
-                    Text(
-                        text = stringResource(id = R.string.item_btn_start),
-                        color = MaterialTheme.colors.secondary
-                    )
-                }
+                },
+                actions = {
+                    // MultiApp multi-space selector preserved in TopAppBar
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .padding(end = 4.dp)
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(
+                                onClick = viewModel::decrementUserSpace,
+                                modifier = Modifier.minimumInteractiveComponentSize()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                    contentDescription = "Previous Space",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            Text(
+                                text = "${stringResource(R.string.text_space)}${uiState.userSpace}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                            IconButton(
+                                onClick = viewModel::incrementUserSpace,
+                                modifier = Modifier.minimumInteractiveComponentSize()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                    contentDescription = "Next Space",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
+
+                    if (currentRoute != AtpRoutes.ABOUT) {
+                        IconButton(onClick = {
+                            navController.navigate(AtpRoutes.ABOUT) { launchSingleTop = true }
+                        }) {
+                            Icon(
+                                imageVector = Icons.Default.Info,
+                                contentDescription = stringResource(R.string.about_title),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground
+                )
+            )
+        },
+        bottomBar = {
+            NavigationBar(
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.secondary
+            ) {
+                val itemColors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                    selectedTextColor = MaterialTheme.colorScheme.secondary,
+                    indicatorColor = MaterialTheme.colorScheme.primary,
+                    unselectedIconColor = MaterialTheme.colorScheme.primary,
+                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                NavigationBarItem(
+                    selected = currentRoute == AtpRoutes.HOME,
+                    onClick = {
+                        navController.navigate(AtpRoutes.HOME) {
+                            popUpTo(AtpRoutes.HOME) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
+                    colors = itemColors,
+                    icon = { Icon(Icons.Default.Home, contentDescription = null) },
+                    label = { Text(stringResource(R.string.nav_home)) }
+                )
+                NavigationBarItem(
+                    selected = currentRoute == AtpRoutes.IMPORTED_APPS || currentRoute == AtpRoutes.APP_IMPORTER,
+                    onClick = {
+                        navController.navigate(AtpRoutes.IMPORTED_APPS) {
+                            popUpTo(AtpRoutes.HOME) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
+                    colors = itemColors,
+                    icon = {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_container),
+                            contentDescription = null,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    },
+                    label = { Text(stringResource(R.string.nav_apps)) }
+                )
+                NavigationBarItem(
+                    selected = currentRoute == AtpRoutes.STORAGE,
+                    onClick = {
+                        navController.navigate(AtpRoutes.STORAGE) {
+                            popUpTo(AtpRoutes.HOME) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
+                    colors = itemColors,
+                    icon = {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_storage),
+                            contentDescription = null,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    },
+                    label = { Text(stringResource(R.string.nav_storage)) }
+                )
+                NavigationBarItem(
+                    selected = currentRoute == AtpRoutes.ENV_SETTINGS || currentRoute == AtpRoutes.GMS_SETTINGS,
+                    onClick = {
+                        navController.navigate(AtpRoutes.ENV_SETTINGS) {
+                            popUpTo(AtpRoutes.HOME) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
+                    colors = itemColors,
+                    icon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                    label = { Text(stringResource(R.string.nav_settings)) }
+                )
             }
         }
-    }
-}
-
-var clickMenu: (Int)->Unit = { index->
-    when (index) {
-        MENU_ENABLE_GP -> {
-            var googlePkgs =
-                listOf("com.google.android.gms", "com.google.android.gsf", "com.android.vending")
-            for (pkg in googlePkgs) {
-                HackApi.installPackageFromHost(pkg, userSpace, false)
+    ) { innerPadding ->
+        NavHost(
+            navController = navController,
+            startDestination = AtpRoutes.HOME,
+            modifier = Modifier.padding(innerPadding),
+            enterTransition = { fadeIn(animationSpec = tween(200)) },
+            exitTransition = { fadeOut(animationSpec = tween(160)) }
+        ) {
+            composable(AtpRoutes.HOME) {
+                HomeScreen(
+                    uiState = uiState,
+                    loadIcon = viewModel::loadIconBitmap,
+                    onOpenImporter = { navController.navigate(AtpRoutes.APP_IMPORTER) },
+                    onOpenImportedApps = { navController.navigate(AtpRoutes.IMPORTED_APPS) },
+                    onOpenEnvSettings = { navController.navigate(AtpRoutes.ENV_SETTINGS) },
+                    onOpenGmsSettings = { navController.navigate(AtpRoutes.GMS_SETTINGS) },
+                    onOpenStorage = { navController.navigate(AtpRoutes.STORAGE) },
+                    onOpenAbout = { navController.navigate(AtpRoutes.ABOUT) }
+                )
+            }
+            composable(AtpRoutes.IMPORTED_APPS) {
+                ImportedAppsScreen(
+                    uiState = uiState,
+                    loadIcon = viewModel::loadIconBitmap,
+                    getHostLaunchIntent = viewModel::getHostLaunchIntent,
+                    onOpenImporter = { navController.navigate(AtpRoutes.APP_IMPORTER) },
+                    onLaunchVirtualApp = viewModel::launchVirtualApp,
+                    onClearLaunchNotice = viewModel::clearLaunchNotice,
+                    onVerifyContainer = viewModel::verifyContainer,
+                    onClearVerification = viewModel::clearVerificationReport,
+                    onWipeData = viewModel::wipeAppData,
+                    onRemoveApp = viewModel::removeVirtualApp,
+                    onTogglePerAppRoot = viewModel::setPerAppVirtualRoot,
+                    onTogglePerAppGms = viewModel::setPerAppGmsBridge
+                )
+            }
+            composable(AtpRoutes.APP_IMPORTER) {
+                AppImporterScreen(
+                    uiState = uiState,
+                    loadIcon = viewModel::loadIconBitmap,
+                    onScanHostApps = viewModel::scanHostApps,
+                    onImportHostApp = viewModel::importHostApp,
+                    onImportExternalApk = viewModel::importExternalApk,
+                    onToggleSystemApps = viewModel::setIncludeSystemAppsInScanner
+                )
+            }
+            composable(AtpRoutes.ENV_SETTINGS) {
+                EnvironmentSettingsScreen(
+                    uiState = uiState,
+                    onSetIsolateAppData = viewModel::setIsolateAppData,
+                    onSetIsolateExternalStorage = viewModel::setIsolateExternalStorage,
+                    onSetVirtualRootPolicy = viewModel::setVirtualRootPolicy,
+                    onSetPreferredAbi = viewModel::setPreferredAbi,
+                    onOpenGmsSettings = { navController.navigate(AtpRoutes.GMS_SETTINGS) }
+                )
+            }
+            composable(AtpRoutes.GMS_SETTINGS) {
+                GoogleServicesSettingsScreen(
+                    uiState = uiState,
+                    onSetGmsMode = viewModel::setGmsMode,
+                    onRefreshGmsCheck = viewModel::refreshDiagnosticsAndGms,
+                    onStageHostGms = viewModel::stageGoogleServicesFromHost
+                )
+            }
+            composable(AtpRoutes.STORAGE) {
+                StorageManagementScreen(
+                    uiState = uiState,
+                    onClearAppCache = viewModel::clearAppCache,
+                    onWipeAppData = viewModel::wipeAppData,
+                    onRemoveApp = viewModel::removeVirtualApp,
+                    onClearAllCaches = viewModel::clearAllCaches
+                )
+            }
+            composable(AtpRoutes.ABOUT) {
+                AboutScreen()
             }
         }
-        MENU_OPEN_GP -> {
-            var intent:Intent?
-            intent = MoonApplication.INSTANCE().packageManager.getLaunchIntentForPackage("com.android.vending")
-            intent?.addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-            HackApi.startActivity(intent, userSpace)
-        }
-    }
-}
-
-var uninstall: (ApkInfo)->Unit = { apkInfo ->
-    HackApi.uninstallPackage(apkInfo.pkgName, userSpace)
-}
-
-var install: (ApkInfo)->Unit = { apkInfo ->
-    val ret = HackApi.installPackageFromHost(apkInfo.pkgName, userSpace, false)
-
-    when (ret) {
-        INSTALL_SUCCEEDED ->
-            Toast.makeText(MoonApplication.INSTANCE(), R.string.toast_success,
-                Toast.LENGTH_SHORT).show()
-        INSTALL_FAILED_ALREADY_EXISTS ->
-            Toast.makeText(MoonApplication.INSTANCE(), R.string.toast_already_installed,
-                Toast.LENGTH_SHORT).show()
-        else ->
-            Toast.makeText(MoonApplication.INSTANCE(), R.string.toast_fail, Toast.LENGTH_SHORT).show()
-    }
-}
-
-var startApp: (ApkInfo)->Unit = { apkInfo ->
-    var intent:Intent? = null
-    if (apkInfo.sysInstalled) {
-        intent = MoonApplication.INSTANCE().packageManager.getLaunchIntentForPackage(apkInfo.pkgName)
-        intent?.addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-    } else {
-        Toast.makeText(MoonApplication.INSTANCE(), R.string.toast_unsupport, Toast.LENGTH_SHORT).show()
-    }
-
-    if (intent != null) {
-        Log.d(TAG, "begin start " + apkInfo.pkgName)
-        val startRet = HackApi.startActivity(intent, userSpace)
-        if (startRet != START_SUCCESS) {
-            Toast.makeText(MoonApplication.INSTANCE(), R.string.toast_fail, Toast.LENGTH_SHORT).show()
-        }
-    }
-}
-
-@Stable
-class ApkInfo constructor(val apkPath: String, val sysInstalled: Boolean) {
-    lateinit var label: String
-    lateinit var pkgName: String
-    lateinit var version: String
-    lateinit var bitmap: ImageBitmap
-    //系统app，比如通讯录，设置，相机等，暂不支持
-    var sysApp: Boolean = false
-    var extras: Bundle? = null
-
-
-    fun getShellPackage():String{
-        if (extras == null) {
-            extras = HackApi.getPackageSetting(pkgName,userSpace, 0)
-        }
-        val assist: Boolean? = extras?.getBoolean(CmdConstants.PKG_SET_REQUEST_ASSISTANT, false)
-        return if (assist != null && assist) BuildConfig.ASSIST_PACKAGE else BuildConfig.MASTER_PACKAGE
-    }
-
-    fun init(context: Context, pkg: String?) {
-        val pm = context.packageManager
-        val pkgInfo: PackageInfo?
-        if (sysInstalled && pkg != null) {
-            pkgInfo = pm.getPackageInfo(pkg, 0)
-            val labelId: Int = pkgInfo.applicationInfo.labelRes
-            when (labelId) {
-                0 -> { label = pkgInfo.packageName}
-                else -> {
-                    label = pm.getResourcesForApplication(pkgInfo.packageName).getString(labelId)
-                }
-            }
-        } else {
-            pkgInfo = pm.getPackageArchiveInfo(apkPath, 0)
-            label = pkgInfo?.packageName ?: ""
-        }
-        if (pkgInfo != null) {
-            pkgInfo.applicationInfo.publicSourceDir
-            pkgName = pkgInfo.packageName
-            version = pkgInfo.versionName
-            val icon = pkgInfo.applicationInfo.loadIcon(pm)
-            bitmap = getAppIconCompat(icon)
-            sysApp = (pkgInfo.applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-        }
-    }
-
-    fun valid(): Boolean {
-        return !pkgName.isEmpty() && !version.isEmpty() && !sysApp
-    }
-
-    private fun getAppIconCompat(icon: Drawable) : ImageBitmap {
-        val bitmap = Bitmap.createBitmap(icon.intrinsicWidth, icon.intrinsicHeight, Bitmap.Config.ARGB_8888)
-        val tmpCanvas = Canvas()
-        tmpCanvas.setBitmap(bitmap)
-        icon.setBounds(0, 0, tmpCanvas.width, tmpCanvas.height)
-        icon.draw(tmpCanvas)
-        tmpCanvas.setBitmap(null)
-        return bitmap.asImageBitmap()
-    }
-
-    override fun toString(): String {
-        return "ApkInfo(apkPath='$apkPath', sysInstalled=$sysInstalled, " +
-                "label='$label', pkgName='$pkgName', " +
-                "version='$version', bitmap=$bitmap, sysApp=$sysApp)"
-    }
-
-}
-
-@Composable
-fun Greeting(name: String) {
-    Text(text = "Hello $name!")
-}
-
-@Preview(showBackground = true)
-@Composable
-fun DefaultPreview() {
-    GithubMultiAppTheme {
-        Greeting("Android")
     }
 }

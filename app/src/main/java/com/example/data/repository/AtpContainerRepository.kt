@@ -14,11 +14,21 @@ import android.net.Uri
 import android.os.Build
 import com.example.data.local.VirtualAppDao
 import com.example.data.local.VirtualAppEntity
+import com.hack.opensdk.BuildConfig as OpenSdkBuildConfig
+import com.hack.opensdk.CmdConstants
+import com.hack.opensdk.HackApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.zip.ZipFile
+
+sealed interface VirtualLaunchResult {
+    data object Launched : VirtualLaunchResult
+    data object AssistPackageRequired : VirtualLaunchResult
+    data class EngineUnavailable(val message: String) : VirtualLaunchResult
+    data class Failed(val reason: String) : VirtualLaunchResult
+}
 
 class AtpContainerRepository(
     private val context: Context,
@@ -27,7 +37,8 @@ class AtpContainerRepository(
     private val packageManager: PackageManager = context.packageManager
 
     val containerRoot: File
-        get() = File(context.filesDir, "atp_containers").apply { if (!exists()) mkdirs() }
+        get() = HackApi.getSpaceRoot(0)?.parentFile
+            ?: File(context.filesDir, "atp_spaces").apply { if (!exists()) mkdirs() }
 
     fun observeImportedApps(): Flow<List<VirtualAppEntity>> = dao.observeAllApps()
 
@@ -86,50 +97,30 @@ class AtpContainerRepository(
         result.sortedBy { it.appName.lowercase() }
     }
 
-    suspend fun importHostApp(hostApp: HostAppInfo): ImportResult = withContext(Dispatchers.IO) {
-        if (hostApp.baseApkPath.isBlank()) {
-            return@withContext ImportResult.Failure("Base APK path is unavailable for ${hostApp.appName}.")
-        }
-
-        val sourceBase = File(hostApp.baseApkPath)
-        if (!sourceBase.exists() || !sourceBase.canRead()) {
-            return@withContext ImportResult.Failure(
-                "Cannot read APK for ${hostApp.appName}. Some OEM/system packages restrict direct file access."
-            )
-        }
-
-        val appContainerDir = File(containerRoot, sanitizePackageDir(hostApp.packageName))
-        val apkDir = File(appContainerDir, "apk").apply { mkdirs() }
-        val dataDir = File(appContainerDir, "data").apply { mkdirs() }
-        val cacheDir = File(appContainerDir, "cache").apply { mkdirs() }
-
-        return@withContext try {
-            // Clear stale APKs before copying updated base + splits
-            apkDir.listFiles()?.forEach { it.deleteRecursively() }
-
-            val targetBase = File(apkDir, "base.apk")
-            sourceBase.inputStream().use { input ->
-                targetBase.outputStream().use { output ->
-                    input.copyTo(output, bufferSize = 64 * 1024)
-                }
+    suspend fun importHostApp(hostApp: HostAppInfo, userSpace: Int = 0): ImportResult =
+        withContext(Dispatchers.IO) {
+            if (hostApp.baseApkPath.isBlank()) {
+                return@withContext ImportResult.Failure("Base APK path is unavailable for ${hostApp.appName}.")
             }
 
-            var copiedSplits = 0
-            hostApp.splitApkPaths.forEachIndexed { index, splitPath ->
-                val splitFile = File(splitPath)
-                if (splitFile.exists() && splitFile.canRead()) {
-                    val safeName = splitFile.name.takeIf { it.endsWith(".apk") }
-                        ?: "split_$index.apk"
-                    val targetSplit = File(apkDir, safeName)
-                    splitFile.inputStream().use { input ->
-                        targetSplit.outputStream().use { output ->
-                            input.copyTo(output, bufferSize = 64 * 1024)
-                        }
-                    }
-                    copiedSplits++
-                }
+            val installRet = HackApi.installPackageFromHost(hostApp.packageName, userSpace, true)
+            if (installRet != CmdConstants.INSTALL_SUCCEEDED &&
+                installRet != CmdConstants.INSTALL_FAILED_ALREADY_EXISTS
+            ) {
+                return@withContext ImportResult.Failure(
+                    "Cannot read APK for ${hostApp.appName}. Some OEM/system packages restrict direct file access."
+                )
             }
 
+            val spaceRoot = HackApi.getSpaceRoot(userSpace) ?: File(containerRoot, "user_$userSpace")
+            val appContainerDir = File(spaceRoot, sanitizePackageDir(hostApp.packageName))
+            val apkDir = File(appContainerDir, "apk").apply { mkdirs() }
+            val dataDir = File(appContainerDir, "data").apply { mkdirs() }
+            val cacheDir = File(appContainerDir, "cache").apply { mkdirs() }
+
+            val copiedSplits = apkDir.listFiles { f ->
+                f.isFile && f.name.endsWith(".apk") && f.name != "base.apk"
+            }?.size ?: 0
             val totalCopiedBytes = directorySizeBytes(apkDir)
             val detectedAbi = detectAbiFromApkFiles(apkDir).ifBlank { hostApp.abiTag }
 
@@ -139,7 +130,8 @@ class AtpContainerRepository(
                 appName = hostApp.appName,
                 versionName = hostApp.versionName,
                 abiTag = detectedAbi,
-                splitCount = copiedSplits
+                splitCount = copiedSplits,
+                userSpace = userSpace
             )
 
             dao.upsertApp(
@@ -159,84 +151,129 @@ class AtpContainerRepository(
                 )
             )
             ImportResult.Success(hostApp.appName, hostApp.packageName, copiedSplits)
-        } catch (t: Throwable) {
-            ImportResult.Failure(t.message ?: "Failed to stage ${hostApp.appName}.")
         }
-    }
 
-    suspend fun importExternalApk(uri: Uri): ImportResult = withContext(Dispatchers.IO) {
-        val tempFile = File(context.cacheDir, "import_probe_${System.currentTimeMillis()}.apk")
-        return@withContext try {
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                tempFile.outputStream().use { output ->
-                    input.copyTo(output, bufferSize = 64 * 1024)
+    suspend fun importExternalApk(uri: Uri, userSpace: Int = 0): ImportResult =
+        withContext(Dispatchers.IO) {
+            val tempFile = File(context.cacheDir, "import_probe_${System.currentTimeMillis()}.apk")
+            return@withContext try {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    tempFile.outputStream().use { output ->
+                        input.copyTo(output, bufferSize = 64 * 1024)
+                    }
+                } ?: return@withContext ImportResult.Failure("Unable to open selected APK stream.")
+
+                val archiveInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    packageManager.getPackageArchiveInfo(
+                        tempFile.absolutePath,
+                        PackageManager.PackageInfoFlags.of(0L)
+                    )
+                } else {
+                    @Suppress("DEPRECATION")
+                    packageManager.getPackageArchiveInfo(tempFile.absolutePath, 0)
+                } ?: return@withContext ImportResult.Failure("Selected file is not a valid Android APK package.")
+
+                val appInfo = archiveInfo.applicationInfo?.apply {
+                    sourceDir = tempFile.absolutePath
+                    publicSourceDir = tempFile.absolutePath
                 }
-            } ?: return@withContext ImportResult.Failure("Unable to open selected APK stream.")
+                val pkg = archiveInfo.packageName
+                if (pkg == context.packageName) {
+                    return@withContext ImportResult.Failure("Cannot import ATP Virtual Environment into itself.")
+                }
 
-            val archiveInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                packageManager.getPackageArchiveInfo(
-                    tempFile.absolutePath,
-                    PackageManager.PackageInfoFlags.of(0L)
-                )
-            } else {
-                @Suppress("DEPRECATION")
-                packageManager.getPackageArchiveInfo(tempFile.absolutePath, 0)
-            } ?: return@withContext ImportResult.Failure("Selected file is not a valid Android APK package.")
+                val installRet = HackApi.installApkFiles(tempFile.absolutePath, userSpace, true)
+                if (installRet != CmdConstants.INSTALL_SUCCEEDED &&
+                    installRet != CmdConstants.INSTALL_FAILED_ALREADY_EXISTS
+                ) {
+                    return@withContext ImportResult.Failure("HackApi failed to stage external APK ($installRet).")
+                }
 
-            val appInfo = archiveInfo.applicationInfo?.apply {
-                sourceDir = tempFile.absolutePath
-                publicSourceDir = tempFile.absolutePath
-            }
-            val pkg = archiveInfo.packageName
-            if (pkg == context.packageName) {
-                return@withContext ImportResult.Failure("Cannot import ATP VM into itself.")
-            }
+                val label = appInfo?.loadLabel(packageManager)?.toString()?.takeIf { it.isNotBlank() } ?: pkg
+                val versionName = archiveInfo.versionName ?: "1.0"
+                val versionCode = extractVersionCode(archiveInfo)
 
-            val label = appInfo?.loadLabel(packageManager)?.toString()?.takeIf { it.isNotBlank() } ?: pkg
-            val versionName = archiveInfo.versionName ?: "1.0"
-            val versionCode = extractVersionCode(archiveInfo)
+                val spaceRoot = HackApi.getSpaceRoot(userSpace) ?: File(containerRoot, "user_$userSpace")
+                val appContainerDir = File(spaceRoot, sanitizePackageDir(pkg))
+                val apkDir = File(appContainerDir, "apk").apply { mkdirs() }
+                val dataDir = File(appContainerDir, "data").apply { mkdirs() }
+                val cacheDir = File(appContainerDir, "cache").apply { mkdirs() }
 
-            val appContainerDir = File(containerRoot, sanitizePackageDir(pkg))
-            val apkDir = File(appContainerDir, "apk").apply { mkdirs() }
-            val dataDir = File(appContainerDir, "data").apply { mkdirs() }
-            val cacheDir = File(appContainerDir, "cache").apply { mkdirs() }
-
-            apkDir.listFiles()?.forEach { it.deleteRecursively() }
-            val targetBase = File(apkDir, "base.apk")
-            tempFile.copyTo(targetBase, overwrite = true)
-
-            val detectedAbi = detectAbiFromApkFiles(apkDir)
-            writeContainerManifest(
-                containerDir = appContainerDir,
-                packageName = pkg,
-                appName = label,
-                versionName = versionName,
-                abiTag = detectedAbi,
-                splitCount = 0
-            )
-
-            dao.upsertApp(
-                VirtualAppEntity(
+                val detectedAbi = detectAbiFromApkFiles(apkDir)
+                writeContainerManifest(
+                    containerDir = appContainerDir,
                     packageName = pkg,
                     appName = label,
                     versionName = versionName,
-                    versionCode = versionCode,
                     abiTag = detectedAbi,
                     splitCount = 0,
-                    apkSizeBytes = targetBase.length(),
-                    containerDir = appContainerDir.absolutePath,
-                    dataDir = dataDir.absolutePath,
-                    cacheDir = cacheDir.absolutePath,
-                    importedAt = System.currentTimeMillis(),
-                    sourceType = "EXTERNAL_APK"
+                    userSpace = userSpace
                 )
-            )
-            ImportResult.Success(label, pkg, 0)
-        } catch (t: Throwable) {
-            ImportResult.Failure(t.message ?: "Failed to import external APK.")
-        } finally {
-            tempFile.delete()
+
+                dao.upsertApp(
+                    VirtualAppEntity(
+                        packageName = pkg,
+                        appName = label,
+                        versionName = versionName,
+                        versionCode = versionCode,
+                        abiTag = detectedAbi,
+                        splitCount = 0,
+                        apkSizeBytes = directorySizeBytes(apkDir),
+                        containerDir = appContainerDir.absolutePath,
+                        dataDir = dataDir.absolutePath,
+                        cacheDir = cacheDir.absolutePath,
+                        importedAt = System.currentTimeMillis(),
+                        sourceType = "EXTERNAL_APK"
+                    )
+                )
+                ImportResult.Success(label, pkg, 0)
+            } catch (t: Throwable) {
+                ImportResult.Failure(t.message ?: "Failed to import external APK.")
+            } finally {
+                tempFile.delete()
+            }
         }
+
+    suspend fun launchVirtualApp(packageName: String, userSpace: Int): VirtualLaunchResult =
+        withContext(Dispatchers.IO) {
+            val extras = HackApi.getPackageSetting(packageName, userSpace, 0)
+            val needsAssist = extras?.getBoolean(CmdConstants.PKG_SET_REQUEST_ASSISTANT, false) == true
+            if (needsAssist && !isAssistPackageInstalled()) {
+                return@withContext VirtualLaunchResult.AssistPackageRequired
+            }
+
+            val launchIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+                addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+            } ?: Intent(Intent.ACTION_MAIN).apply {
+                setPackage(packageName)
+            }
+
+            return@withContext when (val code = HackApi.startActivity(launchIntent, userSpace)) {
+                CmdConstants.START_SUCCESS -> VirtualLaunchResult.Launched
+                CmdConstants.START_ERR_ENGINE_UNAVAILABLE -> VirtualLaunchResult.EngineUnavailable(
+                    "Container is staged on disk, but the native WaxMoon/opensdk runtime library (libhack.so) is not populated in this repository. You can verify container files or open the host app directly."
+                )
+                else -> VirtualLaunchResult.Failed("HackApi.startActivity returned code $code")
+            }
+        }
+
+    fun isAssistPackageInstalled(): Boolean {
+        return getPackageInfoCompat(OpenSdkBuildConfig.ASSIST_PACKAGE) != null
+    }
+
+    suspend fun stageGoogleServicesFromHost(userSpace: Int): List<String> = withContext(Dispatchers.IO) {
+        val googlePkgs = listOf("com.google.android.gms", "com.google.android.gsf", "com.android.vending")
+        val results = mutableListOf<String>()
+        for (pkg in googlePkgs) {
+            val ret = HackApi.installPackageFromHost(pkg, userSpace, false)
+            val label = when (ret) {
+                CmdConstants.INSTALL_SUCCEEDED -> "staged"
+                CmdConstants.INSTALL_FAILED_ALREADY_EXISTS -> "already staged"
+                else -> "unavailable on host"
+            }
+            results.add("$pkg: $label")
+        }
+        results
     }
 
     suspend fun verifyContainer(app: VirtualAppEntity): ContainerVerificationReport = withContext(Dispatchers.IO) {
@@ -285,14 +322,12 @@ class AtpContainerRepository(
 
     suspend fun clearAppCache(packageName: String) = withContext(Dispatchers.IO) {
         val app = dao.getByPackage(packageName) ?: return@withContext
-        val cacheDir = File(app.cacheDir)
-        cacheDir.listFiles()?.forEach { it.deleteRecursively() }
+        File(app.cacheDir).listFiles()?.forEach { it.deleteRecursively() }
     }
 
     suspend fun clearAllCaches(apps: List<VirtualAppEntity>) = withContext(Dispatchers.IO) {
         apps.forEach { app ->
-            val cacheDir = File(app.cacheDir)
-            cacheDir.listFiles()?.forEach { it.deleteRecursively() }
+            File(app.cacheDir).listFiles()?.forEach { it.deleteRecursively() }
         }
     }
 
@@ -302,12 +337,11 @@ class AtpContainerRepository(
         File(app.cacheDir).listFiles()?.forEach { it.deleteRecursively() }
     }
 
-    suspend fun removeVirtualApp(packageName: String) = withContext(Dispatchers.IO) {
+    suspend fun removeVirtualApp(packageName: String, userSpace: Int = 0) = withContext(Dispatchers.IO) {
+        HackApi.uninstallPackage(packageName, userSpace)
         val app = dao.getByPackage(packageName)
         if (app != null) {
             File(app.containerDir).deleteRecursively()
-        } else {
-            File(containerRoot, sanitizePackageDir(packageName)).deleteRecursively()
         }
         dao.deleteByPackage(packageName)
     }
@@ -339,7 +373,7 @@ class AtpContainerRepository(
             supportsArm64 = abis.any { it.contains("arm64") },
             supportsArm32 = abis.any { it.contains("armeabi") },
             suBinaryFoundPath = suFound,
-            multiAppEngineAvailable = false,
+            multiAppEngineAvailable = HackApi.isNativeRuntimeAvailable(),
             containerRootPath = containerRoot.absolutePath
         )
     }
@@ -355,11 +389,11 @@ class AtpContainerRepository(
 
         val summary = when {
             gmsInfo != null && vendingInfo != null ->
-                "Host Google Play Services (${gmsInfo.versionName ?: "installed"}) detected. Containerized GMS bridging requires the MultiApp Binder proxy."
+                "Host Google Play Services (${gmsInfo.versionName ?: "installed"}) detected. Ready for HackApi GMS staging when requested."
             gmsInfo != null ->
                 "Host GMS core detected without Play Store. Optional compatibility mode available."
             else ->
-                "No Google Play Services detected on host device. ATP VM remains fully functional without GMS."
+                "No Google Play Services detected on host device. ATP Virtual Environment remains fully functional without GMS."
         }
 
         GmsComponentStatus(
@@ -379,7 +413,6 @@ class AtpContainerRepository(
 
     suspend fun loadAppIconBitmap(packageName: String, containerDir: String? = null): Bitmap? =
         withContext(Dispatchers.IO) {
-            // Try loading from staged base.apk first, then fallback to host PackageManager
             val stagedApk = containerDir?.let { File(it, "apk/base.apk") }?.takeIf { it.exists() }
             val drawable: Drawable? = if (stagedApk != null) {
                 val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -491,12 +524,14 @@ class AtpContainerRepository(
         appName: String,
         versionName: String,
         abiTag: String,
-        splitCount: Int
+        splitCount: Int,
+        userSpace: Int
     ) {
         val file = File(containerDir, "container.manifest.txt")
         file.writeText(
             buildString {
-                appendLine("ATP_CONTAINER_FORMAT=1")
+                appendLine("ATP_CONTAINER_FORMAT=2")
+                appendLine("USER_SPACE=$userSpace")
                 appendLine("PACKAGE=$packageName")
                 appendLine("NAME=$appName")
                 appendLine("VERSION=$versionName")

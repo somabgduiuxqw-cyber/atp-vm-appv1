@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
@@ -26,17 +27,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import org.waxmoon.R
 import com.example.data.preferences.GmsOptionMode
 import com.example.ui.AtpUiState
 import com.example.ui.components.AtpPill
 import com.example.ui.components.AtpSectionTitle
+import org.waxmoon.R
 
 @Composable
 fun GoogleServicesSettingsScreen(
     uiState: AtpUiState,
     onSetGmsMode: (GmsOptionMode) -> Unit,
     onRefreshGmsCheck: () -> Unit,
+    onStageHostGms: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val gms = uiState.gmsStatus
@@ -53,7 +55,7 @@ fun GoogleServicesSettingsScreen(
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f), MaterialTheme.shapes.medium),
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.medium),
                 color = MaterialTheme.colorScheme.surface,
                 shape = MaterialTheme.shapes.medium
             ) {
@@ -61,11 +63,7 @@ fun GoogleServicesSettingsScreen(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    AtpPill(
-                        text = "OPTIONAL · ZERO PROPRIETARY BLOBS BUNDLED",
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
+                    AtpPill(text = "OPTIONAL · ZERO PROPRIETARY BLOBS BUNDLED")
                     Text(
                         text = stringResource(R.string.gms_title),
                         style = MaterialTheme.typography.titleLarge
@@ -82,13 +80,13 @@ fun GoogleServicesSettingsScreen(
         item {
             AtpSectionTitle(
                 title = "Google Services Mode",
-                subtitle = "Keep disabled for minimum APK size and zero background overhead"
+                subtitle = "Keep disabled for minimal footprint and zero background overhead"
             )
             Spacer(modifier = Modifier.height(10.dp))
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f), MaterialTheme.shapes.medium),
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.medium),
                 color = MaterialTheme.colorScheme.surface,
                 shape = MaterialTheme.shapes.medium
             ) {
@@ -143,13 +141,13 @@ fun GoogleServicesSettingsScreen(
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f), MaterialTheme.shapes.medium),
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.medium),
                 color = MaterialTheme.colorScheme.surface,
                 shape = MaterialTheme.shapes.medium
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     GmsStatusLine(
                         "Google Play Services (GMS)",
@@ -167,12 +165,23 @@ fun GoogleServicesSettingsScreen(
                         "Host Google Accounts",
                         gms?.hostAccountsCount?.toString() ?: "Unavailable"
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = gms?.compatibilitySummary ?: "Checking host packages…",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+
+                    if (gms?.gmsInstalled == true) {
+                        Button(
+                            onClick = onStageHostGms,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .minimumInteractiveComponentSize()
+                                .testTag("gms_stage_host_button")
+                        ) {
+                            Text("Stage Host GMS into Space ${uiState.userSpace}")
+                        }
+                    }
                 }
             }
         }
@@ -181,8 +190,8 @@ fun GoogleServicesSettingsScreen(
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .border(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.4f), MaterialTheme.shapes.medium),
-                color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.25f),
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.medium),
+                color = MaterialTheme.colorScheme.surface,
                 shape = MaterialTheme.shapes.medium
             ) {
                 Column(
@@ -190,11 +199,11 @@ fun GoogleServicesSettingsScreen(
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
-                        text = "Compatibility & Licensing Limitations",
+                        text = "Compatibility & Licensing Notice",
                         style = MaterialTheme.typography.titleMedium
                     )
                     Text(
-                        text = "• ATP VM does not bundle unauthorized proprietary Google APKs.\n• Google Sign-In inside an isolated virtual container requires an active MultiApp Binder/AccountManager proxy and signature spoofing support.\n• Without the native MultiApp engine, apps relying heavily on Play Integrity or Google Play Services cannot sign in inside an isolated virtual space.",
+                        text = "• ATP Virtual Environment never bundles unauthorized Google proprietary APKs.\n• Staging host GMS packages uses MultiApp HackApi.installPackageFromHost.\n• In-container Google Sign-In requires the native WaxMoon/opensdk Binder proxy.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
