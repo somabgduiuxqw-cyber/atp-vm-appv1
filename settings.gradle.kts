@@ -25,3 +25,4 @@ dependencyResolutionManagement {
 rootProject.name = "ATP VM"
 
 include(":app")
+include(":opensdk")

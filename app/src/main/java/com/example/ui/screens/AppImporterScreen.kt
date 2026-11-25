@@ -46,7 +46,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.example.R
+import org.waxmoon.R
 import com.example.data.repository.HostAppInfo
 import com.example.ui.AtpUiState
 import com.example.ui.components.AppPackageIcon

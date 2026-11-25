@@ -26,7 +26,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import com.example.R
+import org.waxmoon.R
 import com.example.data.preferences.GmsOptionMode
 import com.example.ui.AtpUiState
 import com.example.ui.components.AtpPill
