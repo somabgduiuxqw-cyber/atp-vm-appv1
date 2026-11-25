@@ -1,50 +1,46 @@
-
-name: Import MultiApp Source
+name: Copy MultiApp Source
 
 on:
-  workflow_dispatch:
   push:
     branches:
       - main
-    paths:
-      - '.github/workflows/create.yml'
+
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  import:
+  copy-repository:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout ATP repository
         uses: actions/checkout@v4
         with:
-          persist-credentials: true
+          fetch-depth: 1
 
-      - name: Clone MultiApp
+      - name: Clone original MultiApp
         run: |
-          git clone --depth 1 \
-            https://github.com/WaxMoon/MultiApp.git source
+          git clone --depth 1 https://github.com/WaxMoon/MultiApp.git source
 
-      - name: Copy source files
+      - name: Copy original source code
         run: |
           rsync -av \
             --exclude='.git/' \
             source/ ./
 
-      - name: Commit changes
+      - name: Commit and push
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email \
-            "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git add -A
 
           if git diff --cached --quiet; then
-            echo "No changes"
+            echo "No changes to commit"
             exit 0
           fi
 
           git commit -m "Import original MultiApp source"
-          git push origin HEAD:main
+          git push
