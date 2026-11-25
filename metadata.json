@@ -1,0 +1,6 @@
+{
+  "name": "ATP VM",
+  "description": "ATP Virtual Environment by ATP Network — lightweight Android app container manager, APK and split-APK importer, and storage utility.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,244 @@
+package com.example.ui
+
+import android.app.Application
+import android.graphics.Bitmap
+import android.net.Uri
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.example.data.local.AtpDatabase
+import com.example.data.local.VirtualAppEntity
+import com.example.data.preferences.EnvironmentPreferences
+import com.example.data.preferences.EnvironmentSettings
+import com.example.data.preferences.GmsOptionMode
+import com.example.data.preferences.PreferredAbi
+import com.example.data.repository.AtpContainerRepository
+import com.example.data.repository.ContainerVerificationReport
+import com.example.data.repository.GmsComponentStatus
+import com.example.data.repository.HostAppInfo
+import com.example.data.repository.HostDiagnostics
+import com.example.data.repository.ImportResult
+import com.example.data.repository.StorageSummary
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+
+data class AtpUiState(
+    val importedApps: List<VirtualAppEntity> = emptyList(),
+    val hostApps: List<HostAppInfo> = emptyList(),
+    val isScanningHostApps: Boolean = false,
+    val importingPackage: String? = null,
+    val storageSummary: StorageSummary = StorageSummary(),
+    val settings: EnvironmentSettings = EnvironmentSettings(),
+    val diagnostics: HostDiagnostics? = null,
+    val gmsStatus: GmsComponentStatus? = null,
+    val verificationReport: ContainerVerificationReport? = null,
+    val statusMessage: String? = null
+)
+
+class AtpViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val database = AtpDatabase.getInstance(application)
+    private val repository = AtpContainerRepository(application, database.virtualAppDao())
+    private val preferences = EnvironmentPreferences(application)
+
+    private val hostAppsFlow = MutableStateFlow<List<HostAppInfo>>(emptyList())
+    private val scanningFlow = MutableStateFlow(false)
+    private val importingPkgFlow = MutableStateFlow<String?>(null)
+    private val storageSummaryFlow = MutableStateFlow(StorageSummary())
+    private val diagnosticsFlow = MutableStateFlow<HostDiagnostics?>(null)
+    private val gmsStatusFlow = MutableStateFlow<GmsComponentStatus?>(null)
+    private val verificationFlow = MutableStateFlow<ContainerVerificationReport?>(null)
+    private val statusMessageFlow = MutableStateFlow<String?>(null)
+
+    private val iconCache = HashMap<String, Bitmap?>()
+
+    val uiState: StateFlow<AtpUiState> = combine(
+        repository.observeImportedApps(),
+        hostAppsFlow,
+        scanningFlow,
+        importingPkgFlow,
+        storageSummaryFlow,
+        preferences.settingsFlow,
+        diagnosticsFlow,
+        gmsStatusFlow,
+        verificationFlow,
+        statusMessageFlow
+    ) { values ->
+        @Suppress("UNCHECKED_CAST")
+        AtpUiState(
+            importedApps = values[0] as List<VirtualAppEntity>,
+            hostApps = values[1] as List<HostAppInfo>,
+            isScanningHostApps = values[2] as Boolean,
+            importingPackage = values[3] as String?,
+            storageSummary = values[4] as StorageSummary,
+            settings = values[5] as EnvironmentSettings,
+            diagnostics = values[6] as HostDiagnostics?,
+            gmsStatus = values[7] as GmsComponentStatus?,
+            verificationReport = values[8] as ContainerVerificationReport?,
+            statusMessage = values[9] as String?
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = AtpUiState()
+    )
+
+    init {
+        refreshDiagnosticsAndGms()
+        viewModelScope.launch {
+            repository.observeImportedApps().collect { apps ->
+                storageSummaryFlow.value = repository.computeStorageSummary(apps)
+            }
+        }
+    }
+
+    fun refreshDiagnosticsAndGms() {
+        viewModelScope.launch {
+            diagnosticsFlow.value = repository.getHostDiagnostics()
+            gmsStatusFlow.value = repository.inspectHostGms()
+        }
+    }
+
+    fun scanHostApps() {
+        if (scanningFlow.value) return
+        viewModelScope.launch {
+            scanningFlow.value = true
+            hostAppsFlow.value = repository.scanInstalledHostApps()
+            scanningFlow.value = false
+        }
+    }
+
+    fun importHostApp(hostApp: HostAppInfo) {
+        viewModelScope.launch {
+            importingPkgFlow.value = hostApp.packageName
+            when (val res = repository.importHostApp(hostApp)) {
+                is ImportResult.Success -> {
+                    val splitNote = if (res.splitCount > 0) " (+${res.splitCount} split APKs)" else ""
+                    statusMessageFlow.value = "Staged ${res.appName}$splitNote into isolated container."
+                }
+                is ImportResult.Failure -> {
+                    statusMessageFlow.value = res.reason
+                }
+            }
+            importingPkgFlow.value = null
+            refreshStorage()
+        }
+    }
+
+    fun importExternalApk(uri: Uri) {
+        viewModelScope.launch {
+            importingPkgFlow.value = "external_apk"
+            when (val res = repository.importExternalApk(uri)) {
+                is ImportResult.Success -> {
+                    statusMessageFlow.value = "Imported ${res.appName} (${res.packageName})."
+                }
+                is ImportResult.Failure -> {
+                    statusMessageFlow.value = res.reason
+                }
+            }
+            importingPkgFlow.value = null
+            refreshStorage()
+        }
+    }
+
+    fun verifyContainer(app: VirtualAppEntity) {
+        viewModelScope.launch {
+            verificationFlow.value = repository.verifyContainer(app)
+        }
+    }
+
+    fun clearVerificationReport() {
+        verificationFlow.value = null
+    }
+
+    fun clearAppCache(packageName: String) {
+        viewModelScope.launch {
+            repository.clearAppCache(packageName)
+            refreshStorage()
+            statusMessageFlow.value = "Cleared cache for $packageName."
+        }
+    }
+
+    fun clearAllCaches() {
+        viewModelScope.launch {
+            repository.clearAllCaches(uiState.value.importedApps)
+            refreshStorage()
+            statusMessageFlow.value = "Cleared all container caches."
+        }
+    }
+
+    fun wipeAppData(packageName: String) {
+        viewModelScope.launch {
+            repository.wipeAppData(packageName)
+            refreshStorage()
+            statusMessageFlow.value = "Wiped isolated data for $packageName."
+        }
+    }
+
+    fun removeVirtualApp(packageName: String) {
+        viewModelScope.launch {
+            repository.removeVirtualApp(packageName)
+            iconCache.remove(packageName)
+            refreshStorage()
+            statusMessageFlow.value = "Removed container $packageName."
+        }
+    }
+
+    fun setPerAppVirtualRoot(packageName: String, enabled: Boolean) {
+        viewModelScope.launch {
+            repository.setPerAppVirtualRoot(packageName, enabled)
+        }
+    }
+
+    fun setPerAppGmsBridge(packageName: String, enabled: Boolean) {
+        viewModelScope.launch {
+            repository.setPerAppGmsBridge(packageName, enabled)
+        }
+    }
+
+    fun setIsolateAppData(enabled: Boolean) {
+        viewModelScope.launch { preferences.setIsolateAppData(enabled) }
+    }
+
+    fun setIsolateExternalStorage(enabled: Boolean) {
+        viewModelScope.launch { preferences.setIsolateExternalStorage(enabled) }
+    }
+
+    fun setVirtualRootPolicy(enabled: Boolean) {
+        viewModelScope.launch { preferences.setVirtualRootPolicy(enabled) }
+    }
+
+    fun setPreferredAbi(abi: PreferredAbi) {
+        viewModelScope.launch { preferences.setPreferredAbi(abi) }
+    }
+
+    fun setGmsMode(mode: GmsOptionMode) {
+        viewModelScope.launch { preferences.setGmsMode(mode) }
+    }
+
+    fun setIncludeSystemAppsInScanner(enabled: Boolean) {
+        viewModelScope.launch { preferences.setIncludeSystemAppsInScanner(enabled) }
+    }
+
+    fun consumeStatusMessage() {
+        statusMessageFlow.value = null
+    }
+
+    fun getHostLaunchIntent(packageName: String) = repository.getHostLaunchIntent(packageName)
+
+    suspend fun loadIconBitmap(packageName: String, containerDir: String? = null): Bitmap? {
+        if (iconCache.containsKey(packageName)) return iconCache[packageName]
+        val loaded = repository.loadAppIconBitmap(packageName, containerDir)
+        iconCache[packageName] = loaded
+        return loaded
+    }
+
+    fun refreshStorage() {
+        viewModelScope.launch {
+            storageSummaryFlow.value = repository.computeStorageSummary(uiState.value.importedApps)
+        }
+    }
+}
