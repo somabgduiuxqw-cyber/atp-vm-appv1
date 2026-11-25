@@ -1,64 +1,20 @@
-<resources>
-    <string name="app_name">ATP VM</string>
-    <string name="app_full_title">ATP Virtual Environment</string>
-    <string name="developer_brand">ATP Network</string>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="app_list" translatable="false">AppList</string>
+    <string name="text_space" translatable="false">space:</string>
+    <string name="item_pkg_name" translatable="false">"pkg: "</string>
+    <string name="item_show_more" translatable="false">"show detail info"</string>
+    <string name="item_show_less" translatable="false">"close detail info"</string>
 
-    <!-- Navigation -->
-    <string name="nav_home">Home</string>
-    <string name="nav_apps">Containers</string>
-    <string name="nav_storage">Storage</string>
-    <string name="nav_settings">Settings</string>
+    <string name="menu_enable_gp" translatable="false">Enable Google Play</string>
+    <string name="menu_open_gp" translatable="false">Open Google Play</string>
 
-    <!-- Home -->
-    <string name="home_subtitle">Lightweight Container Manager</string>
-    <string name="home_import_cta">Import App</string>
-    <string name="home_imported_count_label">Imported</string>
-    <string name="home_storage_used_label">Container Size</string>
-    <string name="home_gms_status_label">Google Services</string>
-    <string name="home_engine_status_title">Virtualization Engine Status</string>
-    <string name="home_engine_status_notice">Container staging, APK/split-APK isolation, and storage management are active. Isolated in-app process execution and virtual root hooks require the WaxMoon/MultiApp native runtime, which was not present in this repository.</string>
-    <string name="home_quick_actions">Environment Modules</string>
-    <string name="home_recent_containers">Imported Containers</string>
-    <string name="home_empty_title">No Virtual Containers Yet</string>
-    <string name="home_empty_desc">Scan apps installed on this device or select an APK file to stage an isolated container.</string>
+    <string name="item_btn_uninstall" translatable="false">uninstall</string>
+    <string name="item_btn_install" translatable="false">install</string>
+    <string name="item_btn_start" translatable="false">start</string>
 
-    <!-- Importer -->
-    <string name="importer_title">App Importer</string>
-    <string name="importer_search_hint">Search installed apps or packages…</string>
-    <string name="importer_pick_apk">Import .apk File</string>
-    <string name="importer_show_system">Include System Apps</string>
-    <string name="importer_scanning">Scanning device packages…</string>
-    <string name="importer_empty">No matching installed applications found.</string>
-    <string name="importer_import_btn">Import</string>
-    <string name="importer_imported_badge">Staged</string>
-
-    <!-- Imported Apps -->
-    <string name="imported_title">Imported Applications</string>
-    <string name="imported_search_hint">Filter imported containers…</string>
-    <string name="imported_empty_title">No Imported Applications</string>
-    <string name="imported_empty_desc">Use the Import App button to stage APK and split-APK packages into isolated ATP storage.</string>
-    <string name="imported_verify_btn">Verify Files</string>
-    <string name="imported_wipe_data_btn">Wipe Data</string>
-    <string name="imported_open_host_btn">Open Host App</string>
-    <string name="imported_remove_btn">Remove Container</string>
-
-    <!-- Virtual Environment Settings -->
-    <string name="env_title">Virtual Environment</string>
-    <string name="env_arch_section">Host Architecture &amp; Compatibility</string>
-    <string name="env_isolation_section">Container Isolation</string>
-    <string name="env_root_section">Virtual Root Access</string>
-    <string name="env_root_warning">Virtual root execution is currently unavailable because MultiApp native syscall/su hooks are not bundled in this build. Host su probe result is shown below without simulation.</string>
-
-    <!-- Google Services -->
-    <string name="gms_title">Google Services</string>
-    <string name="gms_optional_desc">Google Services are optional and disabled by default to keep ATP VM lightweight and free of unauthorized proprietary components.</string>
-
-    <!-- Storage -->
-    <string name="storage_title">Storage Management</string>
-    <string name="storage_clear_all_caches">Clear All Caches</string>
-
-    <!-- About -->
-    <string name="about_title">About ATP</string>
-    <string name="about_license_header">AGPL-3.0 &amp; Attribution</string>
-    <string name="about_attribution_body">ATP Virtual Environment (ATP VM) is developed by ATP Network and structured as a derivative interface for WaxMoon/MultiApp under the GNU Affero General Public License v3.0 (AGPL-3.0). All copyright notices and license terms remain preserved.</string>
+    <string name="toast_fail" tools:ignore="MissingTranslation">failed</string>
+    <string name="toast_success" tools:ignore="MissingTranslation">success</string>
+    <string name="toast_unsupport" tools:ignore="MissingTranslation">not support</string>
+    <string name="toast_assist_missing" tools:ignore="MissingTranslation">assist not install</string>
+    <string name="toast_already_installed" translatable="false">already installed</string>
 </resources>
