@@ -5,7 +5,9 @@ import androidx.room.PrimaryKey
 
 @Entity(tableName = "virtual_apps")
 data class VirtualAppEntity(
-    @PrimaryKey val packageName: String,
+    @PrimaryKey val containerKey: String,
+    val userSpace: Int = 0,
+    val packageName: String,
     val appName: String,
     val versionName: String,
     val versionCode: Long,
@@ -19,4 +21,8 @@ data class VirtualAppEntity(
     val virtualRootRequested: Boolean = false,
     val gmsBridgeRequested: Boolean = false,
     val sourceType: String = "HOST_PACKAGE"
-)
+) {
+    companion object {
+        fun keyFor(userSpace: Int, packageName: String): String = "$userSpace:$packageName"
+    }
+}

@@ -19,4 +19,5 @@ public final class CmdConstants {
     public static final int START_SUCCESS = 0;
     public static final int START_ERR_ENGINE_UNAVAILABLE = -100;
     public static final int START_ERR_INTENT_NULL = -101;
+    public static final int START_ERR_NOT_INSTALLED = -102;
 }

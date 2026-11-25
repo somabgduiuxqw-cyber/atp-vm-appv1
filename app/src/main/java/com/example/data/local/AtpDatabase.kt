@@ -5,7 +5,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-@Database(entities = [VirtualAppEntity::class], version = 1, exportSchema = false)
+@Database(entities = [VirtualAppEntity::class], version = 2, exportSchema = false)
 abstract class AtpDatabase : RoomDatabase() {
     abstract fun virtualAppDao(): VirtualAppDao
 
@@ -19,7 +19,10 @@ abstract class AtpDatabase : RoomDatabase() {
                     context.applicationContext,
                     AtpDatabase::class.java,
                     "atp_vm.db"
-                ).build().also { INSTANCE = it }
+                )
+                    .fallbackToDestructiveMigration(true)
+                    .build()
+                    .also { INSTANCE = it }
             }
         }
     }

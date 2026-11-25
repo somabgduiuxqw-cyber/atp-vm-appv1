@@ -64,4 +64,19 @@ class ExampleUnitTest {
     fun `buildConfig applicationId matches com_atp_vm`() {
         assertEquals("com.atp.vm", BuildConfig.APPLICATION_ID)
     }
+
+    @Test
+    fun `virtual app entity keys are isolated per userSpace`() {
+        val k0 = com.example.data.local.VirtualAppEntity.keyFor(0, "com.example.app")
+        val k1 = com.example.data.local.VirtualAppEntity.keyFor(1, "com.example.app")
+        assertEquals("0:com.example.app", k0)
+        assertEquals("1:com.example.app", k1)
+        assertFalse(k0 == k1)
+    }
+
+    @Test
+    fun `opensdk runtime accurately reports unavailable when native binaries are absent`() {
+        assertFalse(com.hack.opensdk.HackRuntime.isEngineReady())
+        assertFalse(com.hack.opensdk.HackApi.isNativeRuntimeAvailable())
+    }
 }

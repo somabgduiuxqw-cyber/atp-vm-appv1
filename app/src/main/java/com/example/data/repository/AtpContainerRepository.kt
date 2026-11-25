@@ -1,12 +1,14 @@
 package com.example.data.repository
 
 import android.accounts.AccountManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
@@ -21,6 +23,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileOutputStream
 import java.util.zip.ZipFile
 
 sealed interface VirtualLaunchResult {
@@ -41,6 +44,9 @@ class AtpContainerRepository(
             ?: File(context.filesDir, "atp_spaces").apply { if (!exists()) mkdirs() }
 
     fun observeImportedApps(): Flow<List<VirtualAppEntity>> = dao.observeAllApps()
+
+    fun observeAppsForSpace(userSpace: Int): Flow<List<VirtualAppEntity>> =
+        dao.observeAppsForSpace(userSpace)
 
     suspend fun scanInstalledHostApps(): List<HostAppInfo> = withContext(Dispatchers.IO) {
         val launcherIntent = Intent(Intent.ACTION_MAIN).apply {
@@ -118,6 +124,14 @@ class AtpContainerRepository(
             val dataDir = File(appContainerDir, "data").apply { mkdirs() }
             val cacheDir = File(appContainerDir, "cache").apply { mkdirs() }
 
+            if (!File(apkDir, "base.apk").exists()) {
+                return@withContext ImportResult.Failure(
+                    "Staging verification failed: base.apk was not written to container storage."
+                )
+            }
+
+            saveContainerIcon(hostApp.packageName, appContainerDir)
+
             val copiedSplits = apkDir.listFiles { f ->
                 f.isFile && f.name.endsWith(".apk") && f.name != "base.apk"
             }?.size ?: 0
@@ -136,6 +150,8 @@ class AtpContainerRepository(
 
             dao.upsertApp(
                 VirtualAppEntity(
+                    containerKey = VirtualAppEntity.keyFor(userSpace, hostApp.packageName),
+                    userSpace = userSpace,
                     packageName = hostApp.packageName,
                     appName = hostApp.appName,
                     versionName = hostApp.versionName,
@@ -199,6 +215,8 @@ class AtpContainerRepository(
                 val dataDir = File(appContainerDir, "data").apply { mkdirs() }
                 val cacheDir = File(appContainerDir, "cache").apply { mkdirs() }
 
+                saveContainerIcon(pkg, appContainerDir, File(apkDir, "base.apk"))
+
                 val detectedAbi = detectAbiFromApkFiles(apkDir)
                 writeContainerManifest(
                     containerDir = appContainerDir,
@@ -212,6 +230,8 @@ class AtpContainerRepository(
 
                 dao.upsertApp(
                     VirtualAppEntity(
+                        containerKey = VirtualAppEntity.keyFor(userSpace, pkg),
+                        userSpace = userSpace,
                         packageName = pkg,
                         appName = label,
                         versionName = versionName,
@@ -236,26 +256,81 @@ class AtpContainerRepository(
 
     suspend fun launchVirtualApp(packageName: String, userSpace: Int): VirtualLaunchResult =
         withContext(Dispatchers.IO) {
+            val containerEntity = dao.getByPackage(packageName, userSpace)
+            val spaceRoot = HackApi.getSpaceRoot(userSpace) ?: File(containerRoot, "user_$userSpace")
+            val containerDir = containerEntity?.let { File(it.containerDir) }
+                ?: File(spaceRoot, sanitizePackageDir(packageName))
+            val stagedBaseApk = File(File(containerDir, "apk"), "base.apk")
+
+            if (!stagedBaseApk.exists() || stagedBaseApk.length() == 0L) {
+                return@withContext VirtualLaunchResult.Failed(
+                    "Staged APK missing for $packageName in Space $userSpace. Re-import the app first."
+                )
+            }
+
             val extras = HackApi.getPackageSetting(packageName, userSpace, 0)
             val needsAssist = extras?.getBoolean(CmdConstants.PKG_SET_REQUEST_ASSISTANT, false) == true
             if (needsAssist && !isAssistPackageInstalled()) {
                 return@withContext VirtualLaunchResult.AssistPackageRequired
             }
 
-            val launchIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
-                addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-            } ?: Intent(Intent.ACTION_MAIN).apply {
-                setPackage(packageName)
-            }
+            val launchIntent = resolveContainerLaunchIntent(packageName, stagedBaseApk)
+                ?: return@withContext VirtualLaunchResult.Failed(
+                    "No launchable Activity found inside staged APK for $packageName."
+                )
 
             return@withContext when (val code = HackApi.startActivity(launchIntent, userSpace)) {
                 CmdConstants.START_SUCCESS -> VirtualLaunchResult.Launched
-                CmdConstants.START_ERR_ENGINE_UNAVAILABLE -> VirtualLaunchResult.EngineUnavailable(
-                    "Container is staged on disk, but the native WaxMoon/opensdk runtime library (libhack.so) is not populated in this repository. You can verify container files or open the host app directly."
+                CmdConstants.START_ERR_NOT_INSTALLED -> VirtualLaunchResult.Failed(
+                    "Container base.apk is missing from Space $userSpace."
                 )
+                CmdConstants.START_ERR_ENGINE_UNAVAILABLE -> {
+                    val diag = HackApi.getRuntimeDiagnosticSummary()
+                    VirtualLaunchResult.EngineUnavailable(
+                        "Container APK and directories are staged in Space $userSpace (${stagedBaseApk.absolutePath}), " +
+                            "but in-container execution cannot start because the closed-source WaxMoon/opensdk runtime binaries " +
+                            "(moon.jar and native libhack.so/libmoon.so for armeabi-v7a/arm64-v8a) are not populated in this repository.\n\n" +
+                            "Runtime telemetry: $diag"
+                    )
+                }
                 else -> VirtualLaunchResult.Failed("HackApi.startActivity returned code $code")
             }
         }
+
+    private fun resolveContainerLaunchIntent(packageName: String, stagedBaseApk: File): Intent? {
+        packageManager.getLaunchIntentForPackage(packageName)?.let { hostIntent ->
+            return hostIntent.apply {
+                addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+            }
+        }
+
+        val flags = PackageManager.GET_ACTIVITIES.toLong()
+        val archiveInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            packageManager.getPackageArchiveInfo(
+                stagedBaseApk.absolutePath,
+                PackageManager.PackageInfoFlags.of(flags)
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            packageManager.getPackageArchiveInfo(stagedBaseApk.absolutePath, PackageManager.GET_ACTIVITIES)
+        }
+
+        val exportedActivity = archiveInfo?.activities?.firstOrNull { it.exported }
+            ?: archiveInfo?.activities?.firstOrNull()
+        return if (exportedActivity != null) {
+            Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_LAUNCHER)
+                component = ComponentName(packageName, exportedActivity.name)
+                addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+            }
+        } else {
+            Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_LAUNCHER)
+                setPackage(packageName)
+                addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+            }
+        }
+    }
 
     fun isAssistPackageInstalled(): Boolean {
         return getPackageInfoCompat(OpenSdkBuildConfig.ASSIST_PACKAGE) != null
@@ -320,8 +395,8 @@ class AtpContainerRepository(
         )
     }
 
-    suspend fun clearAppCache(packageName: String) = withContext(Dispatchers.IO) {
-        val app = dao.getByPackage(packageName) ?: return@withContext
+    suspend fun clearAppCache(packageName: String, userSpace: Int = 0) = withContext(Dispatchers.IO) {
+        val app = dao.getByPackage(packageName, userSpace) ?: return@withContext
         File(app.cacheDir).listFiles()?.forEach { it.deleteRecursively() }
     }
 
@@ -331,27 +406,27 @@ class AtpContainerRepository(
         }
     }
 
-    suspend fun wipeAppData(packageName: String) = withContext(Dispatchers.IO) {
-        val app = dao.getByPackage(packageName) ?: return@withContext
+    suspend fun wipeAppData(packageName: String, userSpace: Int = 0) = withContext(Dispatchers.IO) {
+        val app = dao.getByPackage(packageName, userSpace) ?: return@withContext
         File(app.dataDir).listFiles()?.forEach { it.deleteRecursively() }
         File(app.cacheDir).listFiles()?.forEach { it.deleteRecursively() }
     }
 
     suspend fun removeVirtualApp(packageName: String, userSpace: Int = 0) = withContext(Dispatchers.IO) {
         HackApi.uninstallPackage(packageName, userSpace)
-        val app = dao.getByPackage(packageName)
+        val app = dao.getByPackage(packageName, userSpace)
         if (app != null) {
             File(app.containerDir).deleteRecursively()
         }
-        dao.deleteByPackage(packageName)
+        dao.deleteByPackage(packageName, userSpace)
     }
 
-    suspend fun setPerAppVirtualRoot(packageName: String, enabled: Boolean) {
-        dao.updateVirtualRootRequested(packageName, enabled)
+    suspend fun setPerAppVirtualRoot(packageName: String, userSpace: Int = 0, enabled: Boolean) {
+        dao.updateVirtualRootRequested(packageName, userSpace, enabled)
     }
 
-    suspend fun setPerAppGmsBridge(packageName: String, enabled: Boolean) {
-        dao.updateGmsBridgeRequested(packageName, enabled)
+    suspend fun setPerAppGmsBridge(packageName: String, userSpace: Int = 0, enabled: Boolean) {
+        dao.updateGmsBridgeRequested(packageName, userSpace, enabled)
     }
 
     suspend fun getHostDiagnostics(): HostDiagnostics = withContext(Dispatchers.IO) {
@@ -413,21 +488,14 @@ class AtpContainerRepository(
 
     suspend fun loadAppIconBitmap(packageName: String, containerDir: String? = null): Bitmap? =
         withContext(Dispatchers.IO) {
+            val cachedIcon = containerDir?.let { File(it, "icon.png") }?.takeIf { it.exists() }
+            if (cachedIcon != null) {
+                BitmapFactory.decodeFile(cachedIcon.absolutePath)?.let { return@withContext it }
+            }
+
             val stagedApk = containerDir?.let { File(it, "apk/base.apk") }?.takeIf { it.exists() }
             val drawable: Drawable? = if (stagedApk != null) {
-                val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    packageManager.getPackageArchiveInfo(
-                        stagedApk.absolutePath,
-                        PackageManager.PackageInfoFlags.of(0L)
-                    )
-                } else {
-                    @Suppress("DEPRECATION")
-                    packageManager.getPackageArchiveInfo(stagedApk.absolutePath, 0)
-                }
-                info?.applicationInfo?.apply {
-                    sourceDir = stagedApk.absolutePath
-                    publicSourceDir = stagedApk.absolutePath
-                }?.loadIcon(packageManager) ?: runCatching {
+                loadDrawableFromApk(stagedApk) ?: runCatching {
                     packageManager.getApplicationIcon(packageName)
                 }.getOrNull()
             } else {
@@ -436,6 +504,35 @@ class AtpContainerRepository(
 
             drawable?.let { drawableToBitmap(it) }
         }
+
+    private fun saveContainerIcon(packageName: String, containerDir: File, fallbackApk: File? = null) {
+        val iconFile = File(containerDir, "icon.png")
+        val drawable = fallbackApk?.takeIf { it.exists() }?.let { loadDrawableFromApk(it) }
+            ?: runCatching { packageManager.getApplicationIcon(packageName) }.getOrNull()
+            ?: return
+        val bitmap = drawableToBitmap(drawable)
+        runCatching {
+            FileOutputStream(iconFile).use { out ->
+                bitmap.compress(Bitmap.CompressFormat.PNG, 90, out)
+            }
+        }
+    }
+
+    private fun loadDrawableFromApk(apkFile: File): Drawable? {
+        val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            packageManager.getPackageArchiveInfo(
+                apkFile.absolutePath,
+                PackageManager.PackageInfoFlags.of(0L)
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            packageManager.getPackageArchiveInfo(apkFile.absolutePath, 0)
+        }
+        return info?.applicationInfo?.apply {
+            sourceDir = apkFile.absolutePath
+            publicSourceDir = apkFile.absolutePath
+        }?.loadIcon(packageManager)
+    }
 
     private fun drawableToBitmap(drawable: Drawable): Bitmap {
         if (drawable is BitmapDrawable && drawable.bitmap != null) {

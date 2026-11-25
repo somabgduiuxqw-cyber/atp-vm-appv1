@@ -1,6 +1,7 @@
 package com.hack.opensdk;
 
 import android.app.Application;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
@@ -13,8 +14,13 @@ import com.hack.Slog;
 import com.hack.utils.FileUtils;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.util.Enumeration;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 
 public final class HackApi {
     private static final String TAG = "HackApi";
@@ -56,13 +62,11 @@ public final class HackApi {
     }
 
     public static boolean isNativeRuntimeAvailable() {
-        if (sHostContext == null) return false;
-        String nativeDir = sHostContext.getApplicationInfo().nativeLibraryDir;
-        if (nativeDir != null) {
-            File libHack = new File(nativeDir, "libhack.so");
-            if (libHack.exists()) return true;
-        }
-        return false;
+        return HackRuntime.isEngineReady();
+    }
+
+    public static String getRuntimeDiagnosticSummary() {
+        return HackRuntime.buildDiagnosticSummary(sHostContext);
     }
 
     public static File getSpaceRoot(int userId) {
@@ -80,6 +84,18 @@ public final class HackApi {
         if (ctx == null || pkgName == null || pkgName.isEmpty()) {
             return CmdConstants.INSTALL_FAILED_INVALID_URI;
         }
+        if (HackRuntime.isEngineReady()) {
+            Object engineRet = HackRuntime.invokeEngineStatic(
+                    "com.hack.opensdk.HackApiImpl",
+                    "installPackageFromHost",
+                    new Class<?>[]{String.class, int.class, boolean.class},
+                    pkgName, userId, forceInstall
+            );
+            if (engineRet instanceof Integer) {
+                return (Integer) engineRet;
+            }
+        }
+
         try {
             PackageManager pm = ctx.getPackageManager();
             ApplicationInfo appInfo = pm.getApplicationInfo(pkgName, 0);
@@ -96,7 +112,7 @@ public final class HackApi {
                 return CmdConstants.INSTALL_FAILED_INVALID_APK;
             }
             File srcBase = new File(appInfo.sourceDir);
-            if (!FileUtils.copyFile(srcBase, baseDest)) {
+            if (!FileUtils.copyFile(srcBase, baseDest) || !baseDest.exists() || baseDest.length() == 0L) {
                 return CmdConstants.INSTALL_FAILED_INVALID_APK;
             }
             if (appInfo.splitSourceDirs != null) {
@@ -110,8 +126,7 @@ public final class HackApi {
                     }
                 }
             }
-            new File(appDir, "data").mkdirs();
-            new File(appDir, "cache").mkdirs();
+            prepareContainerDirectories(appDir, apkDir);
             Slog.d(TAG, "Staged host package %s into user space %d", pkgName, userId);
             return CmdConstants.INSTALL_SUCCEEDED;
         } catch (Throwable t) {
@@ -125,6 +140,18 @@ public final class HackApi {
         if (ctx == null || apkPathOrDir == null || apkPathOrDir.isEmpty()) {
             return CmdConstants.INSTALL_FAILED_INVALID_URI;
         }
+        if (HackRuntime.isEngineReady()) {
+            Object engineRet = HackRuntime.invokeEngineStatic(
+                    "com.hack.opensdk.HackApiImpl",
+                    "installApkFiles",
+                    new Class<?>[]{String.class, int.class, boolean.class},
+                    apkPathOrDir, userId, forceInstall
+            );
+            if (engineRet instanceof Integer) {
+                return (Integer) engineRet;
+            }
+        }
+
         File src = new File(apkPathOrDir);
         if (!src.exists()) {
             return CmdConstants.INSTALL_FAILED_INVALID_URI;
@@ -146,7 +173,7 @@ public final class HackApi {
         if (!forceInstall && destBase.exists()) {
             return CmdConstants.INSTALL_FAILED_ALREADY_EXISTS;
         }
-        if (!FileUtils.copyFile(baseFile, destBase)) {
+        if (!FileUtils.copyFile(baseFile, destBase) || !destBase.exists() || destBase.length() == 0L) {
             return CmdConstants.INSTALL_FAILED_INVALID_APK;
         }
         if (src.isDirectory()) {
@@ -159,12 +186,57 @@ public final class HackApi {
                 }
             }
         }
-        new File(appDir, "data").mkdirs();
-        new File(appDir, "cache").mkdirs();
+        prepareContainerDirectories(appDir, apkDir);
         return CmdConstants.INSTALL_SUCCEEDED;
     }
 
+    private static void prepareContainerDirectories(File appDir, File apkDir) {
+        new File(appDir, "data").mkdirs();
+        new File(appDir, "cache").mkdirs();
+        File libDir = new File(appDir, "lib");
+        libDir.mkdirs();
+
+        // Extract native .so libraries from staged base + split APKs into container lib/<abi>/
+        File[] apks = apkDir.listFiles((dir, name) -> name.endsWith(".apk"));
+        if (apks == null) return;
+        byte[] buf = new byte[16 * 1024];
+        for (File apk : apks) {
+            try (ZipFile zip = new ZipFile(apk)) {
+                Enumeration<? extends ZipEntry> entries = zip.entries();
+                while (entries.hasMoreElements()) {
+                    ZipEntry entry = entries.nextElement();
+                    String name = entry.getName();
+                    if (!entry.isDirectory() && name.startsWith("lib/") && name.endsWith(".so")) {
+                        String rel = name.substring("lib/".length());
+                        if (rel.contains("..")) continue;
+                        File outSo = new File(libDir, rel);
+                        File parent = outSo.getParentFile();
+                        if (parent != null && !parent.exists()) {
+                            parent.mkdirs();
+                        }
+                        try (InputStream in = zip.getInputStream(entry);
+                             FileOutputStream out = new FileOutputStream(outSo)) {
+                            int len;
+                            while ((len = in.read(buf)) > 0) {
+                                out.write(buf, 0, len);
+                            }
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
     public static boolean uninstallPackage(String pkgName, int userId) {
+        if (HackRuntime.isEngineReady()) {
+            HackRuntime.invokeEngineStatic(
+                    "com.hack.opensdk.HackApiImpl",
+                    "uninstallPackage",
+                    new Class<?>[]{String.class, int.class},
+                    pkgName, userId
+            );
+        }
         File spaceDir = getSpaceRoot(userId);
         if (spaceDir == null || pkgName == null || pkgName.isEmpty()) return false;
         File appDir = new File(spaceDir, pkgName);
@@ -175,19 +247,32 @@ public final class HackApi {
 
     public static Bundle getPackageSetting(String pkgName, int userId, int flags) {
         Bundle bundle = new Bundle();
-        Context ctx = sHostContext;
         boolean needsAssist = false;
-        if (ctx != null && pkgName != null) {
-            try {
-                ApplicationInfo info = ctx.getPackageManager().getApplicationInfo(pkgName, 0);
-                String nativeDir = info.nativeLibraryDir;
-                if (nativeDir != null && nativeDir.contains("arm") && !nativeDir.contains("arm64")) {
-                    boolean host64 = Build.SUPPORTED_64_BIT_ABIS.length > 0;
-                    needsAssist = host64;
+        boolean host64 = Build.SUPPORTED_64_BIT_ABIS.length > 0;
+
+        if (host64 && pkgName != null) {
+            File spaceDir = getSpaceRoot(userId);
+            if (spaceDir != null) {
+                File libDir = new File(new File(spaceDir, pkgName), "lib");
+                boolean hasArm32 = new File(libDir, "armeabi-v7a").exists()
+                        || new File(libDir, "armeabi").exists();
+                boolean hasArm64 = new File(libDir, "arm64-v8a").exists();
+                if (hasArm32 && !hasArm64) {
+                    needsAssist = true;
                 }
-            } catch (Exception ignored) {
+            }
+            if (!needsAssist && sHostContext != null) {
+                try {
+                    ApplicationInfo info = sHostContext.getPackageManager().getApplicationInfo(pkgName, 0);
+                    String nativeDir = info.nativeLibraryDir;
+                    if (nativeDir != null && nativeDir.contains("arm") && !nativeDir.contains("arm64")) {
+                        needsAssist = true;
+                    }
+                } catch (Exception ignored) {
+                }
             }
         }
+
         bundle.putBoolean(CmdConstants.PKG_SET_REQUEST_ASSISTANT, needsAssist);
         return bundle;
     }
@@ -196,14 +281,54 @@ public final class HackApi {
         if (intent == null) {
             return CmdConstants.START_ERR_INTENT_NULL;
         }
-        if (!isNativeRuntimeAvailable()) {
-            Slog.e(TAG, "Cannot launch virtualized activity for userSpace %d: native libhack.so runtime not present.", userId);
+        String pkg = intent.getPackage();
+        if (pkg == null || pkg.isEmpty()) {
+            ComponentName cn = intent.getComponent();
+            pkg = cn != null ? cn.getPackageName() : null;
+        }
+        if (pkg != null && !pkg.isEmpty()) {
+            File spaceDir = getSpaceRoot(userId);
+            if (spaceDir != null) {
+                File stagedBase = new File(new File(new File(spaceDir, pkg), "apk"), "base.apk");
+                if (!stagedBase.exists() || stagedBase.length() == 0L) {
+                    Slog.e(TAG, "Cannot start %s in Space %d: staged base.apk missing at %s",
+                            pkg, userId, stagedBase.getAbsolutePath());
+                    return CmdConstants.START_ERR_NOT_INSTALLED;
+                }
+            }
+        }
+
+        if (!HackRuntime.isEngineReady()) {
+            Slog.e(TAG, "Cannot launch virtualized activity for userSpace %d: %s",
+                    userId, getRuntimeDiagnosticSummary());
             return CmdConstants.START_ERR_ENGINE_UNAVAILABLE;
         }
-        return CmdConstants.START_SUCCESS;
+
+        Object engineRet = HackRuntime.invokeEngineStatic(
+                "com.hack.opensdk.HackApiImpl",
+                "startActivity",
+                new Class<?>[]{Intent.class, int.class},
+                intent, userId
+        );
+        if (engineRet instanceof Integer) {
+            return (Integer) engineRet;
+        }
+        Object cmdRet = Cmd.INSTANCE().exec(CmdConstants.CMD_QUICK_START_ACTIVITY, intent, userId);
+        if (cmdRet instanceof Integer) {
+            return (Integer) cmdRet;
+        }
+        return CmdConstants.START_ERR_ENGINE_UNAVAILABLE;
     }
 
     public static void killApplication(String pkgName, int userId) {
+        if (HackRuntime.isEngineReady()) {
+            HackRuntime.invokeEngineStatic(
+                    "com.hack.opensdk.HackApiImpl",
+                    "killApplication",
+                    new Class<?>[]{String.class, int.class},
+                    pkgName, userId
+            );
+        }
         Slog.d(TAG, "killApplication(%s, user=%d)", pkgName, userId);
     }
 }

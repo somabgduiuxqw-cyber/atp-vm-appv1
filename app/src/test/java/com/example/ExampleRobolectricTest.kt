@@ -105,8 +105,11 @@ class ExampleRobolectricTest {
         assertEquals(0L, storageAfterWipe.totalDataBytes)
         assertEquals(3584L, storageAfterWipe.totalApkBytes)
 
-        repository.removeVirtualApp(entity.packageName)
-        assertTrue(repository.observeImportedApps().first().isEmpty())
+        val launchResult = repository.launchVirtualApp(entity.packageName, 0)
+        assertTrue(launchResult is com.example.data.repository.VirtualLaunchResult.EngineUnavailable)
+
+        repository.removeVirtualApp(entity.packageName, 0)
+        assertTrue(repository.observeAppsForSpace(0).first().isEmpty())
         assertFalse(File(entity.containerDir).exists())
     }
 

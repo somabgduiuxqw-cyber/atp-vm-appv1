@@ -19,10 +19,12 @@ import com.example.data.repository.HostDiagnostics
 import com.example.data.repository.ImportResult
 import com.example.data.repository.StorageSummary
 import com.example.data.repository.VirtualLaunchResult
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -42,6 +44,7 @@ data class AtpUiState(
     val statusMessage: String? = null
 )
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class AtpViewModel(application: Application) : AndroidViewModel(application) {
 
     private val database = AtpDatabase.getInstance(application)
@@ -49,6 +52,9 @@ class AtpViewModel(application: Application) : AndroidViewModel(application) {
     private val preferences = EnvironmentPreferences(application)
 
     private val userSpaceFlow = MutableStateFlow(0)
+    private val activeSpaceAppsFlow = userSpaceFlow.flatMapLatest { space ->
+        repository.observeAppsForSpace(space)
+    }
     private val hostAppsFlow = MutableStateFlow<List<HostAppInfo>>(emptyList())
     private val scanningFlow = MutableStateFlow(false)
     private val importingPkgFlow = MutableStateFlow<String?>(null)
@@ -64,7 +70,7 @@ class AtpViewModel(application: Application) : AndroidViewModel(application) {
 
     val uiState: StateFlow<AtpUiState> = combine(
         userSpaceFlow,
-        repository.observeImportedApps(),
+        activeSpaceAppsFlow,
         hostAppsFlow,
         scanningFlow,
         importingPkgFlow,
@@ -102,7 +108,7 @@ class AtpViewModel(application: Application) : AndroidViewModel(application) {
     init {
         refreshDiagnosticsAndGms()
         viewModelScope.launch {
-            repository.observeImportedApps().collect { apps ->
+            activeSpaceAppsFlow.collect { apps ->
                 storageSummaryFlow.value = repository.computeStorageSummary(apps)
             }
         }
@@ -135,10 +141,11 @@ class AtpViewModel(application: Application) : AndroidViewModel(application) {
     fun importHostApp(hostApp: HostAppInfo) {
         viewModelScope.launch {
             importingPkgFlow.value = hostApp.packageName
-            when (val res = repository.importHostApp(hostApp, userSpaceFlow.value)) {
+            val activeSpace = userSpaceFlow.value
+            when (val res = repository.importHostApp(hostApp, activeSpace)) {
                 is ImportResult.Success -> {
                     val splitNote = if (res.splitCount > 0) " (+${res.splitCount} split APKs)" else ""
-                    statusMessageFlow.value = "Staged ${res.appName}$splitNote in Space ${userSpaceFlow.value}."
+                    statusMessageFlow.value = "Staged ${res.appName}$splitNote in Space $activeSpace."
                 }
                 is ImportResult.Failure -> {
                     statusMessageFlow.value = res.reason
@@ -152,9 +159,10 @@ class AtpViewModel(application: Application) : AndroidViewModel(application) {
     fun importExternalApk(uri: Uri) {
         viewModelScope.launch {
             importingPkgFlow.value = "external_apk"
-            when (val res = repository.importExternalApk(uri, userSpaceFlow.value)) {
+            val activeSpace = userSpaceFlow.value
+            when (val res = repository.importExternalApk(uri, activeSpace)) {
                 is ImportResult.Success -> {
-                    statusMessageFlow.value = "Imported ${res.appName} (${res.packageName}) in Space ${userSpaceFlow.value}."
+                    statusMessageFlow.value = "Imported ${res.appName} (${res.packageName}) in Space $activeSpace."
                 }
                 is ImportResult.Failure -> {
                     statusMessageFlow.value = res.reason
@@ -167,9 +175,10 @@ class AtpViewModel(application: Application) : AndroidViewModel(application) {
 
     fun launchVirtualApp(packageName: String) {
         viewModelScope.launch {
-            when (val result = repository.launchVirtualApp(packageName, userSpaceFlow.value)) {
+            val activeSpace = userSpaceFlow.value
+            when (val result = repository.launchVirtualApp(packageName, activeSpace)) {
                 VirtualLaunchResult.Launched -> {
-                    statusMessageFlow.value = "Launched $packageName in Space ${userSpaceFlow.value}."
+                    statusMessageFlow.value = "Launched $packageName in Space $activeSpace."
                 }
                 VirtualLaunchResult.AssistPackageRequired -> {
                     assistPromptPkgFlow.value = packageName
@@ -194,8 +203,9 @@ class AtpViewModel(application: Application) : AndroidViewModel(application) {
 
     fun stageGoogleServicesFromHost() {
         viewModelScope.launch {
-            val results = repository.stageGoogleServicesFromHost(userSpaceFlow.value)
-            statusMessageFlow.value = "GMS Space ${userSpaceFlow.value}: ${results.joinToString("; ")}"
+            val activeSpace = userSpaceFlow.value
+            val results = repository.stageGoogleServicesFromHost(activeSpace)
+            statusMessageFlow.value = "GMS Space $activeSpace: ${results.joinToString("; ")}"
             refreshDiagnosticsAndGms()
         }
     }
@@ -212,7 +222,7 @@ class AtpViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearAppCache(packageName: String) {
         viewModelScope.launch {
-            repository.clearAppCache(packageName)
+            repository.clearAppCache(packageName, userSpaceFlow.value)
             refreshStorage()
             statusMessageFlow.value = "Cleared cache for $packageName."
         }
@@ -222,36 +232,37 @@ class AtpViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             repository.clearAllCaches(uiState.value.importedApps)
             refreshStorage()
-            statusMessageFlow.value = "Cleared all container caches."
+            statusMessageFlow.value = "Cleared all container caches in Space ${userSpaceFlow.value}."
         }
     }
 
     fun wipeAppData(packageName: String) {
         viewModelScope.launch {
-            repository.wipeAppData(packageName)
+            repository.wipeAppData(packageName, userSpaceFlow.value)
             refreshStorage()
-            statusMessageFlow.value = "Wiped isolated data for $packageName."
+            statusMessageFlow.value = "Wiped isolated data for $packageName in Space ${userSpaceFlow.value}."
         }
     }
 
     fun removeVirtualApp(packageName: String) {
         viewModelScope.launch {
-            repository.removeVirtualApp(packageName, userSpaceFlow.value)
-            iconCache.remove(packageName)
+            val activeSpace = userSpaceFlow.value
+            repository.removeVirtualApp(packageName, activeSpace)
+            iconCache.remove("${activeSpace}:$packageName")
             refreshStorage()
-            statusMessageFlow.value = "Removed container $packageName."
+            statusMessageFlow.value = "Removed container $packageName from Space $activeSpace."
         }
     }
 
     fun setPerAppVirtualRoot(packageName: String, enabled: Boolean) {
         viewModelScope.launch {
-            repository.setPerAppVirtualRoot(packageName, enabled)
+            repository.setPerAppVirtualRoot(packageName, userSpaceFlow.value, enabled)
         }
     }
 
     fun setPerAppGmsBridge(packageName: String, enabled: Boolean) {
         viewModelScope.launch {
-            repository.setPerAppGmsBridge(packageName, enabled)
+            repository.setPerAppGmsBridge(packageName, userSpaceFlow.value, enabled)
         }
     }
 
@@ -286,9 +297,10 @@ class AtpViewModel(application: Application) : AndroidViewModel(application) {
     fun getHostLaunchIntent(packageName: String) = repository.getHostLaunchIntent(packageName)
 
     suspend fun loadIconBitmap(packageName: String, containerDir: String? = null): Bitmap? {
-        if (iconCache.containsKey(packageName)) return iconCache[packageName]
+        val cacheKey = "${containerDir ?: "host"}:$packageName"
+        if (iconCache.containsKey(cacheKey)) return iconCache[cacheKey]
         val loaded = repository.loadAppIconBitmap(packageName, containerDir)
-        iconCache[packageName] = loaded
+        iconCache[cacheKey] = loaded
         return loaded
     }
 
